@@ -1,0 +1,62 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <defs>
+    <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#2B1A4A"/>
+      <stop offset="0.5" stop-color="#C2307F"/>
+      <stop offset="0.85" stop-color="#FF7A45"/>
+      <stop offset="1" stop-color="#FFB347"/>
+    </linearGradient>
+    <linearGradient id="sun" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#FFE066"/>
+      <stop offset="1" stop-color="#FF4FA3"/>
+    </linearGradient>
+    <linearGradient id="lens" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#1A1030"/>
+      <stop offset="1" stop-color="#3B1F6B"/>
+    </linearGradient>
+    <clipPath id="frame"><rect width="512" height="512" rx="96"/></clipPath>
+  </defs>
+  <g clip-path="url(#frame)">
+    <rect width="512" height="512" fill="url(#sky)"/>
+    <circle cx="256" cy="330" r="190" fill="url(#sun)" opacity="0.95"/>
+    <g fill="#2B1A4A" opacity="0.55">
+      <rect x="40" y="318" width="432" height="8"/>
+      <rect x="60" y="342" width="392" height="10"/>
+      <rect x="90" y="368" width="332" height="12"/>
+      <rect x="120" y="398" width="272" height="14"/>
+    </g>
+    <!-- palmeiras -->
+    <g fill="#190F33">
+      <path d="M62 512 C70 400 78 330 90 250 L102 252 C96 330 92 410 92 512 Z"/>
+      <path d="M96 250 C60 220 30 228 8 250 C40 236 66 240 96 256 Z"/>
+      <path d="M96 250 C70 206 40 196 12 204 C46 206 72 224 98 258 Z"/>
+      <path d="M96 250 C104 206 130 184 160 182 C132 196 112 220 100 258 Z"/>
+      <path d="M96 252 C130 232 160 240 182 262 C150 252 124 256 98 262 Z"/>
+      <path d="M450 512 C442 410 436 340 424 262 L412 264 C418 340 424 420 420 512 Z"/>
+      <path d="M418 262 C452 232 486 236 506 258 C474 248 446 254 418 270 Z"/>
+      <path d="M418 262 C442 220 474 210 500 218 C470 220 444 238 416 270 Z"/>
+      <path d="M418 262 C408 218 384 198 352 196 C380 210 400 232 412 270 Z"/>
+      <path d="M418 264 C386 244 354 252 332 274 C364 264 392 268 414 274 Z"/>
+    </g>
+    <!-- macaco -->
+    <g>
+      <path d="M130 512 C130 420 190 392 256 392 C322 392 382 420 382 512 Z" fill="#5C341B"/>
+      <circle cx="130" cy="262" r="46" fill="#6B3E22"/>
+      <circle cx="130" cy="262" r="26" fill="#E8B98F"/>
+      <circle cx="382" cy="262" r="46" fill="#6B3E22"/>
+      <circle cx="382" cy="262" r="26" fill="#E8B98F"/>
+      <ellipse cx="256" cy="262" rx="124" ry="132" fill="#7A4A2B"/>
+      <path d="M170 214 C190 168 322 168 342 214 C320 196 192 196 170 214 Z" fill="#5C341B"/>
+      <ellipse cx="256" cy="310" rx="84" ry="70" fill="#EAC7A1"/>
+      <ellipse cx="232" cy="296" rx="8" ry="11" fill="#5C341B"/>
+      <ellipse cx="280" cy="296" rx="8" ry="11" fill="#5C341B"/>
+      <path d="M212 336 C236 366 276 366 300 336" fill="none" stroke="#5C341B" stroke-width="9" stroke-linecap="round"/>
+      <!-- óculos escuros -->
+      <rect x="156" y="226" width="92" height="62" rx="24" fill="url(#lens)" stroke="#FF3D9A" stroke-width="6"/>
+      <rect x="264" y="226" width="92" height="62" rx="24" fill="url(#lens)" stroke="#2DE2E6" stroke-width="6"/>
+      <path d="M248 250 H264" stroke="#FF3D9A" stroke-width="8" stroke-linecap="round"/>
+      <path d="M166 238 L196 238 L176 270 Z" fill="#FFFFFF" opacity="0.28"/>
+      <path d="M274 238 L304 238 L284 270 Z" fill="#FFFFFF" opacity="0.28"/>
+    </g>
+  </g>
+</svg>

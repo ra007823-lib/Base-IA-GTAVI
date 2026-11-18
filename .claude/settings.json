@@ -1,0 +1,16 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(.venv/bin/pip install *)",
+      "Bash(.venv/bin/pip freeze *)",
+      "Bash(.venv/bin/python -)",
+      "Bash(QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest -q tests/test_integrations.py)",
+      "Bash(/home/nathan/Documentos/GitHub/Base-IA-GTAVI/.venv/bin/python shots2.py)",
+      "Bash(pip list *)",
+      "Bash(.venv/bin/python -m pip list)",
+      "Bash(.venv/bin/python -m pip install \"playwright>=1.50,<2\")",
+      "Bash(.venv/bin/python -m pip freeze)",
+      "Bash(python3 -)"
+    ]
+  }
+}
