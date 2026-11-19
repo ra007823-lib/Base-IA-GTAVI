@@ -12,6 +12,7 @@ from typing import Callable, Protocol
 
 from google import genai
 from google.genai import errors as genai_errors
+from tenacity import Retrying, retry_if_exception, stop_after_attempt, wait_exponential
 
 from ..config import ANALYSIS_CHUNK_S
 from ..credentials import CredentialError
@@ -30,6 +31,8 @@ MAX_PER_PART = 5
 MAX_RESPONSE_CHARS = 200_000
 REQUEST_TIMEOUT_S = 600
 EDGE_TOLERANCE_S = 5
+RETRY_ATTEMPTS = 3
+RETRY_BASE_S = 2.0  # espera 2 s, 4 s... entre tentativas (limite de 20 s)
 
 SYSTEM_INSTRUCTION = (
     "Você analisa vídeos do YouTube para um criador brasileiro de vídeos curtos. "
@@ -185,6 +188,15 @@ def translate_error(exc: Exception) -> ServiceError | None:
     return None
 
 
+def is_transient(exc: BaseException) -> bool:
+    """Falhas que costumam passar sozinhas: limite momentâneo, erro 5xx ou rede."""
+    code = _status_code(exc)  # type: ignore[arg-type]
+    if code is not None:
+        return code == 429 or code in (500, 502, 503, 504)
+    friendly = translate_error(exc)  # type: ignore[arg-type]
+    return friendly is not None and "Sem conexão" in str(friendly)
+
+
 class GeminiAnalyst:
     def __init__(
         self,
@@ -234,6 +246,18 @@ class GeminiAnalyst:
         drafts.sort(key=lambda draft: draft.start_s)
         return AnalysisResult(tuple(drafts[:MAX_CURIOSITIES]), len(windows), max(duration_s, 0))
 
+    @staticmethod
+    def _create(client, **params):  # noqa: ANN001, ANN205
+        """Chama o Gemini com espera exponencial em falhas passageiras."""
+        for attempt in Retrying(
+            stop=stop_after_attempt(RETRY_ATTEMPTS),
+            wait=wait_exponential(multiplier=RETRY_BASE_S, max=20),
+            retry=retry_if_exception(is_transient),
+            reraise=True,
+        ):
+            with attempt:
+                return client.interactions.create(**params)
+
     def _request(
         self, client, model: str, url: str, start: int, end: int | None, whole: bool,
         prompt: str,
@@ -244,7 +268,8 @@ class GeminiAnalyst:
                 "type": "static", "start_offset": f"{start}s", "end_offset": f"{end}s",
             }
         try:
-            interaction = client.interactions.create(
+            interaction = self._create(
+                client,
                 model=model,
                 system_instruction=SYSTEM_INSTRUCTION,
                 input=[video, {"type": "text", "text": prompt}],

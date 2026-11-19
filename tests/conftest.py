@@ -24,6 +24,12 @@ class MemoryKeyring:
         self.data.pop((service, name), None)
 
 
+@pytest.fixture(autouse=True)
+def fast_retries(monkeypatch):
+    """Sem espera real entre as tentativas de nova chamada ao Gemini."""
+    monkeypatch.setattr("trinca.pipeline.analysis.RETRY_BASE_S", 0.0)
+
+
 @pytest.fixture(scope="session")
 def qapp():
     from PySide6.QtWidgets import QApplication

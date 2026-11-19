@@ -23,6 +23,7 @@ UPLOAD_PAGES = {
 }
 
 # Duração do vídeo final: de 30 s a 1 min 30 s.
+CUT_BUFFER_S = 1.5  # folga antes e depois do trecho da IA, para não cortar no meio da fala
 MIN_OUTPUT_S = 30
 MAX_OUTPUT_S = 90
 

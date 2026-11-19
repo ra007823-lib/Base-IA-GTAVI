@@ -8,7 +8,7 @@ from PySide6.QtWidgets import QComboBox, QFileDialog, QInputDialog, QRadioButton
 
 from ...context import AppContext
 from ...pipeline.assembly import DEMO_MEDIA
-from ...config import MAX_OUTPUT_S, MIN_OUTPUT_S
+from ...config import CUT_BUFFER_S, MAX_OUTPUT_S, MIN_OUTPUT_S
 from ...pipeline.media import cut_range, probe_duration, script_dir
 from ...security import (
     AUDIO_EXTENSIONS, VIDEO_EXTENSIONS, ValidationError, clean_text, safe_media_path,
@@ -168,7 +168,9 @@ class ImportPage(Page):
             path, total = result
             fields = {"media_path": clean_text(path, 1024)}
             if total > 0:
-                cut_start, cut_end = cut_range(start, end, total, MIN_OUTPUT_S, MAX_OUTPUT_S)
+                cut_start, cut_end = cut_range(
+                    start - CUT_BUFFER_S, end + CUT_BUFFER_S, total, MIN_OUTPUT_S, MAX_OUTPUT_S
+                )
                 fields.update(duration_s=total, trim_start=cut_start, trim_end=cut_end)
             repo.update_block(block_id, **fields)
             self._mark_recorded()

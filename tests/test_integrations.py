@@ -416,6 +416,28 @@ def test_real_sdk_error_classes_are_recognized():
     assert translate_error(TypeError("bug")) is None
 
 
+def test_gemini_retries_transient_failures_but_not_permanent_ones():
+    transient = genai_errors.ServerError(503, {"error": {"message": "x"}})
+    ok = {"curiosities": [_moment("01:00", "01:20")]}
+    client = FakeGemini(transient, ConnectionError("rede"), ok)
+    result = _analyst(client).analyze("abcDEF12345", 300, "", quiet, never)
+    assert len(client.calls) == 3 and len(result.drafts) == 1
+
+    denied = FakeGemini(genai_errors.ClientError(403, {"error": {"message": "x"}}), ok)
+    with pytest.raises(ServiceError, match="recusou a chave"):
+        _analyst(denied).analyze("abcDEF12345", 300, "", quiet, never)
+    assert len(denied.calls) == 1  # erro permanente: sem nova tentativa
+
+
+def test_cut_gets_a_safety_buffer():
+    from trinca.config import CUT_BUFFER_S, MAX_OUTPUT_S, MIN_OUTPUT_S
+    from trinca.pipeline.media import cut_range
+
+    assert CUT_BUFFER_S == 1.5
+    start, end = cut_range(100 - CUT_BUFFER_S, 140 + CUT_BUFFER_S, 600, MIN_OUTPUT_S, MAX_OUTPUT_S)
+    assert (start, end) == (98.5, 141.5)
+
+
 def test_gemini_failures_become_clear_messages():
     cases = [
         (SimpleNamespace(status="failed", output_text=None), "não concluiu"),
@@ -437,7 +459,8 @@ def test_gemini_failures_become_clear_messages():
     ]
     for response, expected in cases:
         with pytest.raises(ServiceError, match=expected) as info:
-            _analyst(FakeGemini(response)).analyze("abcDEF12345", 300, "", quiet, never)
+            # repete a resposta para cobrir as novas tentativas das falhas passageiras
+            _analyst(FakeGemini(*[response] * 3)).analyze("abcDEF12345", 300, "", quiet, never)
         assert KEY not in str(info.value)
     with pytest.raises(CredentialError):
         _analyst(FakeGemini(), key=None).analyze("abcDEF12345", 300, "", quiet, never)
