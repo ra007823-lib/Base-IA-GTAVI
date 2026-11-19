@@ -30,6 +30,7 @@ ALLOWED_HOSTS = frozenset(
         "studio.youtube.com",
         "www.instagram.com",
         "www.tiktok.com",
+        "claude.ai",
     }
 )
 

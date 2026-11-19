@@ -12,8 +12,9 @@ from ...config import PLATFORM_LABELS, PLATFORMS, UPLOAD_PAGES
 from ...context import AppContext, to_sources
 from ...pipeline.contracts import PlatformCopy
 from ...pipeline.publishing import build_package
-from ...pipeline.script import missing_credits
+from ...pipeline.script import manual_copy_prompt, missing_credits, parse_pasted_copy
 from ...security import ValidationError, clean_text, is_allowed_url
+from ..paste_dialog import PasteDialog
 from ..widgets import button, chip, clear_layout, confirm, label, open_url, Page, row, warn
 
 
@@ -98,8 +99,11 @@ class PublishingPage(Page):
         self.scripts = QComboBox()
         self.scripts.setMinimumWidth(420)
         self.scripts.currentIndexChanged.connect(lambda _: self._load_current())
-        self.copy_button = button("Gerar textos com o Claude", self.generate_copy)
-        self.root.addLayout(row(label("Vídeo aprovado"), self.scripts, self.copy_button))
+        self.copy_button = button("Gerar textos", self.generate_copy)
+        self.paste_button = button("Escrever com o Claude (colar)", self.generate_copy_pasted)
+        self.root.addLayout(
+            row(label("Vídeo aprovado"), self.scripts, self.copy_button, self.paste_button)
+        )
 
         self.tabs = QTabWidget()
         self.platform_tabs = {}
@@ -124,6 +128,7 @@ class PublishingPage(Page):
     def _load_current(self) -> None:
         self._script_id = self.scripts.currentData()
         self.copy_button.setEnabled(self._script_id is not None)
+        self.paste_button.setEnabled(self._script_id is not None)
         publications = (
             {p["platform"]: p for p in self.ctx.repo.list_publications(self._script_id)}
             if self._script_id
@@ -131,6 +136,42 @@ class PublishingPage(Page):
         )
         for platform, tab in self.platform_tabs.items():
             tab.load(publications.get(platform))
+
+    def _save_copies(self, script_id: int, copies) -> None:
+        for copy in copies:
+            if copy.platform not in PLATFORMS:
+                raise ValidationError("O roteirista devolveu uma plataforma desconhecida.")
+            self.ctx.repo.upsert_publication(
+                script_id, copy.platform, clean_text(copy.title, 100, required=True),
+                clean_text(copy.description, 2200, required=True),
+                clean_text(copy.hashtags, 300),
+            )
+
+    def generate_copy_pasted(self) -> None:
+        """Textos escritos no chat do Claude: o app monta o pedido e valida a resposta."""
+        if self._script_id is None:
+            return
+        repo = self.ctx.repo
+        script_id = self._script_id
+        if repo.list_publications(script_id) and not confirm(
+            self, "Gerar os textos de novo substitui o que já está escrito. Continuar?"
+        ):
+            return
+        title = repo.get_script(script_id)["title"]
+        text = "\n".join(block["text"] for block in repo.list_blocks(script_id))
+        sources = to_sources(repo.script_sources(script_id))
+        dialog = PasteDialog(
+            self, "Textos com o Claude", manual_copy_prompt(title, text),
+            lambda answer: parse_pasted_copy(answer, sources),
+        )
+        if dialog.exec() and dialog.result_value is not None:
+            try:
+                self._save_copies(script_id, dialog.result_value)
+            except ValidationError as exc:
+                warn(self, str(exc))
+                return
+            self.refresh()
+            self.ctx.message.emit("Textos de publicação gerados. Revise antes de publicar.")
 
     def generate_copy(self) -> None:
         if self._script_id is None:
@@ -150,15 +191,8 @@ class PublishingPage(Page):
             return writer.platform_copy(title, text, sources, progress, cancelled)
 
         def done(copies) -> str:
-            repo.add_usage("claude")
-            for copy in copies:
-                if copy.platform not in PLATFORMS:
-                    raise ValidationError("O roteirista devolveu uma plataforma desconhecida.")
-                repo.upsert_publication(
-                    script_id, copy.platform, clean_text(copy.title, 100, required=True),
-                    clean_text(copy.description, 2200, required=True),
-                    clean_text(copy.hashtags, 300),
-                )
+            repo.add_usage(self.ctx.writer_name)
+            self._save_copies(script_id, copies)
             self.refresh()
             return "Textos de publicação gerados. Revise antes de publicar."
 

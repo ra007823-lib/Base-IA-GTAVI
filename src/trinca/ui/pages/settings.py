@@ -108,7 +108,15 @@ class SettingsPage(Page):
         form.addRow("Estilo das legendas", self.caption_style)
         form.addRow("Provedor da terceira IA", self.provider)
         self.model_inputs = {}
+        self.writer = QComboBox()
         if not ctx.demo:
+            self.writer.addItem("Gemini (mesma chave da análise)", "gemini")
+            self.writer.addItem("Claude (chave da API)", "claude")
+            self.writer.setCurrentIndex(max(self.writer.findData(ctx.models["writer"]), 0))
+            self.writer.currentIndexChanged.connect(
+                lambda _: ctx.set_writer(self.writer.currentData())
+            )
+            form.addRow("Quem escreve os roteiros", self.writer)
             for kind, title, options in (
                 ("gemini", "Modelo do Gemini", GEMINI_MODELS),
                 ("claude", "Modelo do Claude", CLAUDE_MODELS),
@@ -143,6 +151,8 @@ class SettingsPage(Page):
         for name, status in self.key_status.items():
             text = self.ctx.credentials.masked(name)
             status.setText(text)
+            if name == "claude" and self.ctx.models.get("writer") != "claude":
+                continue  # a chave do Claude só é necessária quando ele é o roteirista
             if name in REAL_MODE_KEYS and not text.startswith("Salva"):
                 missing.append(SERVICES[name])
         self.output_label.setText(str(self.ctx.output_dir()))
@@ -154,7 +164,8 @@ class SettingsPage(Page):
         else:
             text = (
                 "Real: o radar lê o YouTube sem chave (yt-dlp), a análise usa o Gemini, os roteiros "
-                "usam o Claude, a voz usa o edge-tts e o Whisper, e a montagem usa o FFmpeg."
+                "usam o Gemini ou o Claude (à sua escolha; o botão “colar” usa o chat do Claude "
+                "sem chave), a voz usa o edge-tts e o Whisper, e a montagem usa o FFmpeg."
             )
             if self.ctx.services.simulated:
                 text += " Ainda são simulados: " + ", ".join(self.ctx.services.simulated) + "."

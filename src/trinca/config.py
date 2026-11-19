@@ -58,6 +58,7 @@ DEFAULT_SETTINGS = {
     "output_dir": "",
     "gemini_model": GEMINI_MODELS[0],
     "claude_model": CLAUDE_MODELS[0],
+    "writer_provider": "gemini",
     "search_order": "relevance",
     "search_period_days": "0",
     "search_duration": "any",

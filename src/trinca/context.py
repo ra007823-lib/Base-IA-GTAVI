@@ -19,7 +19,7 @@ from .pipeline.contracts import CuriosityInput, ServiceError, Source, parse_curi
 from .pipeline.narration import DemoSpeech, LocalSpeech, SpeechProvider, estimate_duration
 from .pipeline.publishing import DemoYouTube, Publisher
 from .pipeline.radar import DemoRadar, RadarSource
-from .pipeline.script import ClaudeWriter, DemoWriter, ScriptWriter
+from .pipeline.script import ClaudeWriter, DemoWriter, GeminiWriter, RoutedWriter, ScriptWriter
 from .pipeline.youtube_browser import BrowserYouTube
 from .pipeline.youtube_search import YtDlpRadar
 from .security import ValidationError, validate_model_name
@@ -66,7 +66,11 @@ def real_services(
     return Services(
         radar=YtDlpRadar(),
         analyst=GeminiAnalyst(lambda: credentials.get("gemini"), lambda: models["gemini"]),
-        writer=ClaudeWriter(lambda: credentials.get("claude"), lambda: models["claude"]),
+        writer=RoutedWriter(
+            lambda: models.get("writer", "gemini"),
+            GeminiWriter(lambda: credentials.get("gemini"), lambda: models["gemini"]),
+            ClaudeWriter(lambda: credentials.get("claude"), lambda: models["claude"]),
+        ),
         speech=LocalSpeech(),
         assembler=FfmpegAssembler(),
         youtube=BrowserYouTube(),
@@ -129,6 +133,18 @@ class AppContext(QObject):
         value = validate_model_name(name)
         self.repo.set_setting(f"{kind}_model", value)
         self.models[kind] = value
+
+    def set_writer(self, provider: str) -> None:
+        """Escolhe quem escreve roteiros e textos: 'gemini' ou 'claude'."""
+        if provider not in ("gemini", "claude"):
+            raise KeyError(provider)
+        self.repo.set_setting("writer_provider", provider)
+        self.models["writer"] = provider
+
+    @property
+    def writer_name(self) -> str:
+        """Serviço contado no uso diário quando o roteirista é chamado."""
+        return self.models.get("writer", "claude") if not self.demo else "claude"
 
     def output_dir(self) -> Path:
         configured = self.repo.get_setting("output_dir")
@@ -242,5 +258,6 @@ def build_context(
     models = {
         "gemini": repo.get_setting("gemini_model"),
         "claude": repo.get_setting("claude_model"),
+        "writer": repo.get_setting("writer_provider"),
     }
     return AppContext(repo, store, real_services(store, models, delay), demo=False, models=models)

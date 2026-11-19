@@ -7,13 +7,16 @@ toda descrição. O crédito é montado pelo app, nunca pelo modelo.
 from __future__ import annotations
 
 import json
+import re
 from typing import Callable, Protocol, Sequence
 
 import anthropic
+from google import genai
 
 from ..credentials import CredentialError
 from ..demo_data import script_line
-from ..security import validate_model_name, video_url
+from ..security import ValidationError, validate_model_name, video_url
+from .analysis import REQUEST_TIMEOUT_S as GEMINI_TIMEOUT_S, GeminiAnalyst, translate_error
 from .contracts import (
     Cancelled, CuriosityInput, IsCancelled, PlatformCopy, Progress, ScriptDraft, ServiceError,
     Source, parse_platform_copy, parse_script, simulate,
@@ -230,6 +233,138 @@ class ClaudeWriter:
             return json.loads(text)
         except ValueError as exc:
             raise ServiceError("O Claude devolveu uma resposta fora do formato pedido.") from exc
+
+
+# ----- Gemini como roteirista e fluxo manual com o chat do Claude -----
+
+MAX_PASTED_CHARS = 100_000
+_FENCE_RE = re.compile(r"```(?:json)?\s*(.*?)```", re.DOTALL | re.IGNORECASE)
+
+_SCRIPT_FORMAT = (
+    'Responda SOMENTE com JSON válido, sem texto antes ou depois, neste formato: '
+    '{"title": "...", "blocks": [{"curiosity_id": 1, "text": "..."}]}'
+)
+_COPY_FORMAT = (
+    "Responda SOMENTE com JSON válido, sem texto antes ou depois, neste formato: "
+    '{"youtube": {"title": "...", "description": "...", "hashtags": ["..."]}, '
+    '"instagram": {...}, "tiktok": {...}}'
+)
+
+
+def extract_json(text: str) -> object:
+    """Lê o JSON de uma resposta colada do chat, com ou sem bloco de código."""
+    text = (text or "").strip()
+    if not text or len(text) > MAX_PASTED_CHARS:
+        raise ValidationError("Cole a resposta completa do Claude (JSON).")
+    fenced = _FENCE_RE.search(text)
+    if fenced:
+        text = fenced.group(1).strip()
+    start, end = text.find("{"), text.rfind("}")
+    if start == -1 or end <= start:
+        raise ValidationError("Não encontrei o JSON na resposta. Peça ao Claude só o JSON.")
+    try:
+        return json.loads(text[start : end + 1])
+    except ValueError as exc:
+        raise ValidationError("O JSON colado está incompleto ou inválido.") from exc
+
+
+def manual_script_prompt(items: Sequence[CuriosityInput], max_seconds: int) -> str:
+    """Pedido para colar no chat do Claude."""
+    return f"{SYSTEM_PROMPT}\n\n{build_script_request(items, max_seconds)}\n\n{_SCRIPT_FORMAT}"
+
+
+def manual_copy_prompt(script_title: str, script_text: str) -> str:
+    return f"{SYSTEM_PROMPT}\n\n{build_copy_request(script_title, script_text)}\n\n{_COPY_FORMAT}"
+
+
+def parse_pasted_script(text: str, items: Sequence[CuriosityInput]) -> ScriptDraft:
+    return parse_script(extract_json(text), items)
+
+
+def parse_pasted_copy(text: str, sources: Sequence[Source]) -> list[PlatformCopy]:
+    return parse_platform_copy(extract_json(text), credit_lines(sources))
+
+
+class GeminiWriter:
+    """Roteirista com a mesma chave do analista, para quem não tem chave do Claude."""
+
+    def __init__(
+        self,
+        get_key: Callable[[], str | None],
+        get_model: Callable[[], str],
+        client_factory: Callable[[str], object] | None = None,
+    ) -> None:
+        self._get_key = get_key
+        self._get_model = get_model
+        self._factory = client_factory or (lambda key: genai.Client(api_key=key))
+
+    def write(
+        self, items: Sequence[CuriosityInput], max_seconds: int, progress: Progress,
+        cancelled: IsCancelled,
+    ) -> ScriptDraft:
+        progress(20, "O Gemini está escrevendo o roteiro")
+        payload = self._ask(build_script_request(items, max_seconds), SCRIPT_SCHEMA, cancelled)
+        return parse_script(payload, items)
+
+    def platform_copy(
+        self, script_title: str, script_text: str, sources: Sequence[Source],
+        progress: Progress, cancelled: IsCancelled,
+    ) -> list[PlatformCopy]:
+        progress(20, "O Gemini está escrevendo título, descrição e hashtags")
+        payload = self._ask(build_copy_request(script_title, script_text), COPY_SCHEMA, cancelled)
+        return parse_platform_copy(payload, credit_lines(sources))
+
+    def _ask(self, request: str, schema: dict, cancelled: IsCancelled) -> object:
+        key = self._get_key()
+        if not key:
+            raise CredentialError("Configure a chave do Gemini em Configurações.")
+        model = validate_model_name(self._get_model())
+        client = self._factory(key)
+        if cancelled():
+            raise Cancelled()
+        try:
+            interaction = GeminiAnalyst._create(
+                client,
+                model=model,
+                system_instruction=SYSTEM_PROMPT,
+                input=[{"type": "text", "text": request}],
+                response_format={"type": "text", "mime_type": "application/json", "schema": schema},
+                store=False,
+                timeout=GEMINI_TIMEOUT_S,
+            )
+        except Exception as exc:
+            friendly = translate_error(exc)
+            if friendly is None:
+                raise
+            raise friendly from exc
+        if cancelled():
+            raise Cancelled()
+        if interaction.status != "completed":
+            raise ServiceError(f"O Gemini não concluiu o texto (estado: {interaction.status}).")
+        text = interaction.output_text or ""
+        if not text or len(text) > MAX_PASTED_CHARS:
+            raise ServiceError("O Gemini devolveu uma resposta vazia ou grande demais.")
+        try:
+            return json.loads(text)
+        except ValueError as exc:
+            raise ServiceError("O Gemini devolveu uma resposta fora do formato pedido.") from exc
+
+
+class RoutedWriter:
+    """Escolhe o roteirista a cada pedido, conforme a opção em Configurações."""
+
+    def __init__(self, get_provider: Callable[[], str], gemini: ScriptWriter, claude: ScriptWriter) -> None:
+        self._get_provider = get_provider
+        self._writers = {"gemini": gemini, "claude": claude}
+
+    def _pick(self) -> ScriptWriter:
+        return self._writers.get(self._get_provider(), self._writers["gemini"])
+
+    def write(self, items, max_seconds, progress, cancelled) -> ScriptDraft:  # noqa: ANN001
+        return self._pick().write(items, max_seconds, progress, cancelled)
+
+    def platform_copy(self, script_title, script_text, sources, progress, cancelled):  # noqa: ANN001
+        return self._pick().platform_copy(script_title, script_text, sources, progress, cancelled)
 
 
 class DemoWriter:

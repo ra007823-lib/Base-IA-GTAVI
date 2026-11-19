@@ -9,7 +9,9 @@ from PySide6.QtWidgets import (
 )
 
 from ...context import AppContext, to_inputs
+from ...pipeline.script import manual_script_prompt, parse_pasted_script
 from ...security import video_url
+from ..paste_dialog import PasteDialog
 from ..widgets import (
     Card, Page, button, confirm, fmt_time, label, open_url, row, status_text, warn,
 )
@@ -72,12 +74,14 @@ class CuriositiesPage(Page):
         self.root.addLayout(columns, 1)
 
         self.generate_button = button("Gerar roteiro", self.generate, True)
+        self.paste_button = button("Escrever com o Claude (colar)", self.generate_pasted)
         self.root.addLayout(
             row(
                 button("Selecionar", lambda: self.set_status("selecionada")),
                 button("Descartar", lambda: self.set_status("descartada")),
                 button("Voltar para nova", lambda: self.set_status("nova")),
                 self.generate_button,
+                self.paste_button,
             )
         )
 
@@ -110,6 +114,7 @@ class CuriositiesPage(Page):
         selected_count = len(self._available_selected())
         self.generate_button.setText(f"Gerar roteiro com as selecionadas ({selected_count})")
         self.generate_button.setEnabled(selected_count > 0)
+        self.paste_button.setEnabled(selected_count > 0)
 
     def _available_selected(self) -> list:
         """Curiosidades selecionadas cujo vídeo ainda não foi usado."""
@@ -155,7 +160,8 @@ class CuriositiesPage(Page):
         current = self._rows[ids[0]]
         open_url(self, video_url(current["video_youtube_id"], current["start_s"]))
 
-    def generate(self) -> None:
+    def _chosen_items(self):
+        """Curiosidades do roteiro, respeitando o limite por vídeo. None = usuário desistiu."""
         repo = self.ctx.repo
         rows = self._available_selected()
         limit = int(repo.get_setting("curiosities_per_video"))
@@ -167,9 +173,32 @@ class CuriositiesPage(Page):
                 "neste roteiro ficam bloqueadas, porque cada vídeo de origem só pode ser "
                 "usado uma vez. Continuar?",
             ):
-                return
+                return None
             rows = rows[:limit]
-        items = to_inputs(rows)
+        return to_inputs(rows)
+
+    def generate_pasted(self) -> None:
+        """Roteiro escrito no chat do Claude: o app só monta o pedido e valida a resposta."""
+        items = self._chosen_items()
+        if items is None:
+            return
+        max_seconds = int(self.ctx.repo.get_setting("max_duration_s"))
+        dialog = PasteDialog(
+            self, "Roteiro com o Claude", manual_script_prompt(items, max_seconds),
+            lambda text: parse_pasted_script(text, items),
+        )
+        if dialog.exec() and dialog.result_value is not None:
+            draft = dialog.result_value
+            self.ctx.repo.create_script(draft.title, draft.blocks)
+            self.refresh()
+            self.ctx.navigate.emit("roteiros")
+            self.ctx.message.emit(f"Roteiro criado: {draft.title}")
+
+    def generate(self) -> None:
+        repo = self.ctx.repo
+        items = self._chosen_items()
+        if items is None:
+            return
         max_seconds = int(repo.get_setting("max_duration_s"))
         writer = self.ctx.services.writer
 
@@ -177,7 +206,7 @@ class CuriositiesPage(Page):
             return writer.write(items, max_seconds, progress, cancelled)
 
         def done(draft) -> str:
-            repo.add_usage("claude")
+            repo.add_usage(self.ctx.writer_name)
             repo.create_script(draft.title, draft.blocks)
             self.refresh()
             self.ctx.navigate.emit("roteiros")

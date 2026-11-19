@@ -3,14 +3,14 @@
 Estúdio desktop para Linux que transforma vídeos do YouTube em vídeos curtos verticais de curiosidades, para YouTube Shorts, Instagram Reels e TikTok. O tema é livre: você busca vídeos sobre o assunto que quiser ou acompanha canais. Três IAs fazem o trabalho:
 
 - **Gemini (analista):** assiste ao vídeo pela URL e lista os momentos curiosos.
-- **Claude (roteirista):** reescreve cada momento com texto próprio e escreve título, descrição e hashtags.
+- **Roteirista (Gemini ou Claude):** reescreve cada momento com texto próprio e escreve título, descrição e hashtags. O padrão é o Gemini (mesma chave da análise). O Claude por API é opcional; sem chave, os botões “Escrever com o Claude (colar)” montam o pedido para você colar no chat do claude.ai e trazer a resposta de volta, validada pelo app.
 - **Terceira IA (voz e legendas):** provedor ainda em aberto, atrás de uma interface trocável.
 
 O app se chama Macaco (`APP_NAME` em `src/trinca/config.py`). O pacote Python, a pasta de dados (`~/.local/share/trinca`) e o item do cofre continuam com o nome interno `trinca`, para não perder dados e chaves já salvos. O logo é uma ilustração própria em SVG (`src/trinca/assets/macaco.svg`), no clima neon de pôr do sol de Vice City, sem arte oficial de jogo.
 
 ## Estado atual
 
-Etapas 1 a 3 de 6 concluídas. O app tem dois modos, escolhidos na tela Configurações:
+Etapas 1 a 3 e 5 de 6 concluídas (a 4 só falta testar com a conta real). O app tem dois modos, escolhidos na tela Configurações:
 
 - **Demonstração:** dados fictícios, nenhuma API é chamada. É o modo padrão.
 - **Real:** o radar lê o YouTube sem chave (yt-dlp, só metadados), a análise usa o Gemini e os roteiros usam o Claude, com as suas chaves. O envio ao YouTube é feito pelo YouTube Studio, num Chrome controlado pelo app (Playwright), sem a API de envio. A voz usa o edge-tts (ou a sua gravação, alinhada com o Whisper local), as legendas e a montagem usam o FFmpeg, e o player toca o vídeo renderizado.
@@ -23,10 +23,19 @@ As integrações do modo real foram testadas com respostas simuladas e com chave
 | 2 | Radar pela YouTube Data API, análise com o Gemini e roteiros com o Claude | Concluída, falta validar com chaves reais |
 | 3 | Importação, narração, montagem com FFmpeg, legendas e player | Concluída |
 | 4 | Publicação no YouTube e pacote para Instagram e TikTok | Pacote pronto; envio ao YouTube pelo navegador implementado, falta testar com a conta real |
-| 5 | Empacotamento (AppImage ou .deb) | A fazer |
+| 5 | Empacotamento (.deb) | Concluída (`packaging/build-deb.sh`); AppImage não feito |
 | 6 | Registro de canais autorizados | A fazer |
 
-## Como rodar
+## Instalar (.deb)
+
+```bash
+packaging/build-deb.sh              # gera dist/macaco_0.1.0_all.deb
+sudo apt install ./dist/macaco_0.1.0_all.deb
+```
+
+O pacote leva só o código; na instalação ele cria `/opt/macaco/venv` e baixa as dependências de `requirements.lock` (precisa de internet e leva alguns minutos). Depois o "Macaco" aparece no menu de aplicativos e o comando `macaco` abre o app. Para remover: `sudo apt remove macaco`.
+
+## Como rodar (desenvolvimento)
 
 ```bash
 python3 -m venv .venv
@@ -48,9 +57,7 @@ A voz sintética (edge-tts) envia o texto de cada bloco ao serviço de voz da Mi
 
 ## Como usar o modo real
 
-1. Crie as duas chaves (o YouTube não precisa de chave):
-   - **Gemini:** crie a chave no Google AI Studio.
-   - **Claude:** crie a chave no Console da Anthropic.
+1. Crie a chave do Gemini no Google AI Studio (o YouTube não precisa de chave). A chave do Claude (Console da Anthropic, paga por uso) só é necessária se você escolher o Claude como roteirista em Configurações.
 2. Abra Configurações, cole cada chave e clique em Salvar.
 3. Clique em "Usar o modo real". O modo real tem um banco próprio e começa vazio.
 4. No Radar, digite um tema e clique em "Buscar vídeos". Se preferir acompanhar canais, adicione um pelo @, pelo link ou pelo ID na aba "Canais monitorados".
