@@ -29,6 +29,22 @@ def estimate_duration(text: str) -> float:
     return max(3.0, round(len(text.split()) / WORDS_PER_SECOND, 1))
 
 
+def synthesize_text(text: str, target: Path) -> None:
+    """Gera a voz sintética de um texto (edge-tts) em um arquivo de áudio."""
+    try:
+        import edge_tts
+    except ImportError as exc:
+        raise ServiceError("O edge-tts não está instalado. Rode: pip install edge-tts") from exc
+    target.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        asyncio.run(edge_tts.Communicate(text, TTS_VOICE).save(str(target)))
+    except Exception as exc:  # noqa: BLE001 - rede ou serviço fora do ar
+        log.warning("Falha na voz sintética: %s", type(exc).__name__)
+        raise ServiceError(
+            "Não consegui gerar a voz sintética. Confira a internet ou use a sua gravação."
+        ) from exc
+
+
 class SpeechProvider(Protocol):
     def prepare(
         self, blocks: Sequence[tuple[int, str]], mode: str, progress: Progress,
@@ -80,24 +96,13 @@ class LocalSpeech:
         return self._align(blocks, progress, cancelled, narration_path)
 
     def _synthesize(self, blocks, progress, cancelled, work_dir) -> list[BlockTiming]:  # noqa: ANN001
-        try:
-            import edge_tts
-        except ImportError as exc:
-            raise ServiceError("O edge-tts não está instalado. Rode: pip install edge-tts") from exc
         timings = []
         for index, (block_id, text) in enumerate(blocks):
             if cancelled():
                 raise Cancelled()
             progress(int(90 * index / len(blocks)), f"Gerando a voz do bloco {index + 1}")
             target = block_audio_path(work_dir, block_id)
-            target.parent.mkdir(parents=True, exist_ok=True)
-            try:
-                asyncio.run(edge_tts.Communicate(text, TTS_VOICE).save(str(target)))
-            except Exception as exc:  # noqa: BLE001 - rede ou serviço fora do ar
-                log.warning("Falha na voz sintética: %s", type(exc).__name__)
-                raise ServiceError(
-                    "Não consegui gerar a voz sintética. Confira a internet ou use a sua gravação."
-                ) from exc
+            synthesize_text(text, target)
             timings.append(BlockTiming(block_id, round(probe_duration(target) + 0.25, 2), text))
         progress(100, "Concluído")
         return timings

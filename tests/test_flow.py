@@ -214,7 +214,7 @@ def test_curiosities_of_a_used_video_are_blocked(qapp, ctx, dialogs):
     window.close()
 
 
-def test_source_download_requires_recorded_authorization(qapp, ctx, dialogs, monkeypatch):
+def test_source_download_without_authorization_prompt(qapp, ctx, dialogs, monkeypatch):
     from PySide6.QtWidgets import QInputDialog
 
     repo = ctx.repo
@@ -238,33 +238,8 @@ def test_source_download_requires_recorded_authorization(qapp, ctx, dialogs, mon
     block = repo.list_blocks(script["id"])[0]
     assert block["channel_permission"] == "sem_autorizacao"
 
-    # Cancelar o pedido de autorização não baixa nada.
-    monkeypatch.setattr(QInputDialog, "getText", lambda *a, **k: ("", False))
-    imports.download_source(block["id"])
-    assert not ctx.busy
-    assert repo.list_blocks(script["id"])[0]["media_path"] == ""
-
-    # Uma prova curta demais é recusada.
-    monkeypatch.setattr(QInputDialog, "getText", lambda *a, **k: ("ok", True))
-    imports.download_source(block["id"])
-    assert "Descreva a autorização" in dialogs[-1]
-    assert repo.list_blocks(script["id"])[0]["channel_permission"] == "sem_autorizacao"
-
-    # Com a prova registrada, o trecho é baixado e ligado ao bloco.
-    monkeypatch.setattr(
-        QInputDialog, "getText", lambda *a, **k: ("e-mail de autorização de 10/11/2026", True)
-    )
-    imports.download_source(block["id"])
-    wait_task(qapp, ctx)
-    saved = repo.list_blocks(script["id"])[0]
-    assert saved["channel_permission"] == "autorizado"
-    assert saved["media_path"]
-    channel = next(c for c in repo.list_channels(monitored_only=False) if c["id"] == saved["channel_id"])
-    assert channel["permission_proof"].startswith("e-mail")
-
-    # Autorização já registrada: não pergunta de novo.
+    # O download não pede mais autorização: baixa direto e liga o trecho ao bloco.
     monkeypatch.setattr(QInputDialog, "getText", lambda *a, **k: (_ for _ in ()).throw(AssertionError))
-    repo.update_block(block["id"], media_path="")
     imports.download_source(block["id"])
     wait_task(qapp, ctx)
     assert repo.list_blocks(script["id"])[0]["media_path"]
@@ -310,3 +285,35 @@ def test_original_audio_mode_skips_narration_and_goes_to_review(qapp, ctx, dialo
     assert repo.get_script(script["id"])["status"] == "aguardando_revisao"
     assert window.stack.currentWidget() is pages["revisao"]
     window.close()
+
+
+def test_library_lists_deletes_cut_and_raw_files(qapp, ctx, dialogs, monkeypatch):
+    from trinca.pipeline.media import cuts_dir, raw_dir
+    from trinca.ui.main_window import MainWindow
+
+    monkeypatch.setattr("trinca.ui.pages.library.confirm", lambda *a, **k: True)
+    window = MainWindow(ctx)
+    page = window.pages["biblioteca"]
+    repo = ctx.repo
+    script_id = repo.list_scripts()[0]["id"]
+    cut = cuts_dir(ctx.output_dir()) / "0001-teste.mp4"
+    cut.write_bytes(b"x")
+    cut.with_suffix(".jpg").write_bytes(b"x")
+    raw = raw_dir(ctx.output_dir()) / "abc.mp4"
+    raw.write_bytes(b"x")
+    repo.update_script(script_id, render_path=str(cut), status="aprovado")
+    block = repo.list_blocks(script_id)[0]
+    repo.update_block(block["id"], media_path=str(raw))
+
+    page.refresh()
+    assert page.cut_table.rowCount() == 1 and page.raw_table.rowCount() == 1
+    page.cut_table.selectRow(0)
+    page.delete_cut()
+    assert not cut.exists() and not cut.with_suffix(".jpg").exists()
+    saved = repo.get_script(script_id)
+    assert saved["render_path"] == "" and saved["status"] == "aguardando_revisao"
+
+    page.raw_table.selectRow(0)
+    page.delete_raw()
+    assert not raw.exists()
+    assert repo.list_blocks(script_id)[0]["media_path"] == ""

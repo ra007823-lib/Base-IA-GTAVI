@@ -46,6 +46,10 @@ class RadarSource(Protocol):
         cancelled: IsCancelled,
     ) -> RadarResult: ...
 
+    def fetch_video(
+        self, video_id: str, progress: Progress, cancelled: IsCancelled
+    ) -> DetectedVideo: ...
+
 
 def _as_dict(value: object) -> dict:
     return value if isinstance(value, dict) else {}
@@ -201,10 +205,19 @@ class DemoRadar:
         self, reference: str, progress: Progress, cancelled: IsCancelled
     ) -> tuple[ChannelInfo, int]:
         kind, value = parse_channel_ref(reference)
-        if kind != "id":
-            raise ValidationError("No modo de demonstração, informe o ID do canal (UC…).")
         simulate(["Buscando o canal"], progress, cancelled, self._delay)
+        if kind != "id":
+            return ChannelInfo("UC" + "x" * 22, f"Canal de demonstração {value}", ""), 0
         return ChannelInfo(value, f"Canal de demonstração {value[-4:]}", ""), 0
+
+    def fetch_video(
+        self, video_id: str, progress: Progress, cancelled: IsCancelled
+    ) -> DetectedVideo:
+        simulate(["Lendo o vídeo"], progress, cancelled, self._delay)
+        return DetectedVideo(
+            video_id, f"[Exemplo] Vídeo {video_id}", "2026-11-14T18:00:00", 600,
+            "UC" + "x" * 22, "Meu canal (demonstração)",
+        )
 
     def check(
         self, channel: ChannelRef, known_ids: set[str], progress: Progress,

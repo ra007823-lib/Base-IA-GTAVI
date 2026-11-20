@@ -86,8 +86,9 @@ def test_ffmpeg_render_makes_vertical_video_with_narration(tmp_path):
     info = subprocess.run([ffmpeg_path(), "-hide_banner", "-i", str(final)],
                           capture_output=True, text=True).stderr
     assert "1080x1920" in info and "Audio: aac" in info
+    assert final.parent == (tmp_path / "saida" / "cortes").resolve()
     folder = script_dir(tmp_path / "saida", 7, "Teste de montagem")
-    assert sorted(p.name for p in folder.iterdir()) == ["video.mp4"]  # temporários removidos
+    assert list(folder.iterdir()) == []  # temporários removidos
 
 
 def test_ffmpeg_render_rejects_missing_media_and_can_be_cancelled(tmp_path):
@@ -133,3 +134,24 @@ def test_ffmpeg_cut_keeps_original_audio_and_full_frame(tmp_path):
     info = subprocess.run([ffmpeg_path(), "-hide_banner", "-i", str(final)],
                           capture_output=True, text=True).stderr
     assert "1080x1920" in info and "Audio: aac" in info
+
+
+def test_original_audio_cut_opens_with_hook_and_saves_cover(tmp_path, monkeypatch):
+    clip = _make(tmp_path, "origem.mp4", "testsrc2", 6)
+
+    def fake_voice(text, target):  # sem rede: um tom de 2 s no lugar da voz
+        subprocess.run(
+            [ffmpeg_path(), "-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi", "-i",
+             "sine=frequency=400:duration=2", str(target)], check=True,
+        )
+
+    monkeypatch.setattr("trinca.pipeline.assembly.synthesize_text", fake_voice)
+    job = RenderJob(
+        9, "Gancho", (RenderBlock(1, str(clip), 1.0, 5.0, "", 0.0, "Olha só o que acontece", 3.0),),
+        "original", "", "Neon", str(tmp_path / "saida"),
+    )
+    final = Path(FfmpegAssembler().render(job, quiet, never))
+    # gancho (2 s de voz + folga, no mínimo 3 s) + corte de 4 s
+    assert probe_duration(final) == pytest.approx(3.0 + 4.0, abs=0.4)
+    assert final.with_suffix(".jpg").is_file()  # capa ao lado do corte
+    assert list(script_dir(tmp_path / "saida", 9, "Gancho").iterdir()) == []

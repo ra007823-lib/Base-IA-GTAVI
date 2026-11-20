@@ -14,6 +14,7 @@ from .pages.curiosities import CuriositiesPage
 from .pages.dashboard import DashboardPage
 from .pages.history import HistoryPage
 from .pages.importing import ImportPage
+from .pages.library import LibraryPage
 from .pages.publishing import PublishingPage
 from .pages.radar import RadarPage
 from .pages.review import ReviewPage
@@ -29,6 +30,7 @@ PAGES = (
     ("importacao", "Importação e narração", ImportPage),
     ("revisao", "Montagem e revisão", ReviewPage),
     ("publicacao", "Publicação", PublishingPage),
+    ("biblioteca", "Biblioteca", LibraryPage),
     ("historico", "Histórico", HistoryPage),
     ("configuracoes", "Configurações", SettingsPage),
 )

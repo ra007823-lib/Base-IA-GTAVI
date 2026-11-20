@@ -78,9 +78,13 @@ class YtDlpRadar:
     ) -> tuple[ChannelInfo, int]:
         kind, value = parse_channel_ref(reference)
         progress(30, "Buscando o canal no YouTube")
-        url = (f"https://www.youtube.com/channel/{value}/videos" if kind == "id"
-               else f"https://www.youtube.com/@{value.lstrip('@')}/videos")
-        info = _extract(url, extract_flat=True, playlistend=1)
+        base = (f"https://www.youtube.com/channel/{value}" if kind == "id"
+                else f"https://www.youtube.com/@{value.lstrip('@')}")
+        try:
+            info = _extract(f"{base}/videos", extract_flat=True, playlistend=1)
+        except ServiceError:
+            # Canal novo ou sem vídeos públicos não tem a aba "Vídeos": lê a página do canal.
+            info = _extract(base, extract_flat=True, playlistend=1)
         try:
             channel_id = validate_channel_id(info.get("channel_id") or info.get("id"))
             name = clean_text(info.get("channel") or info.get("uploader"), 80, required=True)
@@ -88,6 +92,19 @@ class YtDlpRadar:
         except ValidationError as exc:
             raise ServiceError("Canal não encontrado no YouTube.") from exc
         return ChannelInfo(channel_id, name, playlist), 0
+
+    def fetch_video(
+        self, video_id: str, progress: Progress, cancelled: IsCancelled
+    ) -> DetectedVideo:
+        """Lê os dados de um vídeo pelo link. Só metadados, nada é baixado."""
+        progress(30, "Lendo o vídeo no YouTube")
+        found = self._details([validate_video_id(video_id)], cancelled)
+        if not found:
+            raise ServiceError(
+                "Não consegui usar este vídeo: pode ser uma transmissão ao vivo ainda não "
+                "encerrada, ou o YouTube não devolveu os dados."
+            )
+        return found[0]
 
     def check(
         self, channel: ChannelRef, known_ids: set[str], progress: Progress,
@@ -167,7 +184,7 @@ class YtDlpRadar:
             moment, duration = _moment(item), item.get("duration")
             # Transmissões ao vivo ou agendadas ficam para a próxima verificação.
             if (
-                item.get("live_status") not in (None, "not_live", "was_live", "")
+                item.get("live_status") not in (None, "not_live", "was_live", "post_live", "")
                 or moment is None or not isinstance(duration, (int, float)) or duration <= 0
             ):
                 continue

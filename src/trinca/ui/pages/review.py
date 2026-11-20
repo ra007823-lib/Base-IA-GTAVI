@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from PySide6.QtCore import QRectF, Qt
+from PySide6.QtCore import QRectF, Qt, QUrl
 from PySide6.QtGui import QColor, QFont, QLinearGradient, QPainter, QPen
 from PySide6.QtWidgets import (
     QComboBox, QDoubleSpinBox, QHBoxLayout, QListWidget, QPlainTextEdit, QVBoxLayout, QWidget,
@@ -144,6 +144,11 @@ class VideoPlayer(QWidget):
     def stop(self) -> None:
         self._player.stop()
 
+    def unload(self) -> None:
+        """Solta o arquivo, para ele poder ser excluído."""
+        self._player.setSource(QUrl())
+        self._loaded = ""
+
     def _play_pause(self) -> None:
         from PySide6.QtMultimedia import QMediaPlayer
 
@@ -213,10 +218,22 @@ class ReviewPage(Page):
         adjust.addStretch(1)
         self.caption = QPlainTextEdit()
         self.caption.setPlaceholderText("Legenda do bloco")
+        self.hook = QPlainTextEdit()
+        self.hook.setPlaceholderText(
+            "Gancho falado (3 a 5 s) antes do corte, só no áudio original. Vazio = sem gancho."
+        )
+        self.hook.setMaximumHeight(72)
+        self.hotspot = QDoubleSpinBox()
+        self.hotspot.setDecimals(1)
+        self.hotspot.setSingleStep(0.5)
+        self.hotspot.setSuffix(" s")
+        self.hotspot.setMinimumWidth(96)
         self.apply_button = button("Aplicar ajustes", self.apply_adjust)
         side = QVBoxLayout()
         side.addLayout(adjust)
         side.addWidget(self.caption, 1)
+        side.addWidget(self.hook)
+        side.addLayout(row(label("Quadro do ponto alto (capa e gancho)"), self.hotspot))
         side.addLayout(row(self.apply_button))
         lower.addLayout(side, 3)
         work.body.addLayout(lower, 1)
@@ -317,6 +334,9 @@ class ReviewPage(Page):
         for spin, value in ((self.start, block["trim_start"]), (self.end, block["trim_end"])):
             spin.setRange(0, block["duration_s"])
             spin.setValue(value)
+        self.hook.setPlainText(block["hook_text"])
+        self.hotspot.setRange(0, block["duration_s"])
+        self.hotspot.setValue(max(block["hotspot_s"], 0))
         self.caption.setPlainText(block["caption"])
         self.preview.set_caption(block["caption"])
 
@@ -338,7 +358,11 @@ class ReviewPage(Page):
             warn(self, "A legenda não pode ficar vazia.")
             return
         repo = self.ctx.repo
-        repo.update_block(block["id"], trim_start=start, trim_end=end, caption=caption)
+        hook = clean_text(self.hook.toPlainText(), 140)
+        repo.update_block(
+            block["id"], trim_start=start, trim_end=end, caption=caption, hook_text=hook,
+            hotspot_s=self.hotspot.value(),
+        )
         # Qualquer ajuste invalida a renderização e a aprovação anteriores.
         repo.update_script(self._script_id, render_path="", status="aguardando_revisao")
         self.ctx.message.emit("Ajustes aplicados. Renderize de novo para aprovar.")
@@ -355,7 +379,7 @@ class ReviewPage(Page):
         for block in repo.list_blocks(script_id):
             blocks.append(RenderBlock(
                 block["id"], block["media_path"], block["trim_start"], block["trim_end"],
-                block["caption"], offset,
+                block["caption"], offset, block["hook_text"], block["hotspot_s"],
             ))
             offset += block["duration_s"]
         job = RenderJob(

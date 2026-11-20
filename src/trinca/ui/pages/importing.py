@@ -9,7 +9,7 @@ from PySide6.QtWidgets import QComboBox, QFileDialog, QInputDialog, QRadioButton
 from ...context import AppContext
 from ...pipeline.assembly import DEMO_MEDIA
 from ...config import CUT_BUFFER_S, MAX_OUTPUT_S, MIN_OUTPUT_S
-from ...pipeline.media import cut_range, probe_duration, script_dir
+from ...pipeline.media import context_cut, probe_duration, raw_dir, script_dir
 from ...security import (
     AUDIO_EXTENSIONS, VIDEO_EXTENSIONS, ValidationError, clean_text, safe_media_path,
 )
@@ -97,15 +97,19 @@ class ImportPage(Page):
             return
         for block in self.ctx.repo.list_blocks(script["id"]):
             block_id = block["id"]
-            self.blocks.addLayout(
+            item = QVBoxLayout()
+            item.setSpacing(4)
+            item.addLayout(
                 row(
                     label(f"Bloco {block['position']}"),
                     button("Importar vídeo…", lambda block_id=block_id: self.import_video(block_id)),
                     *self._download_widgets(block),
                     label(_media_name(block["media_path"]), "Muted"),
-                    label(block["scene_hint"], "Muted"),
                 )
             )
+            if block["scene_hint"]:
+                item.addWidget(label(block["scene_hint"], "Muted"))
+            self.blocks.addLayout(item)
         mode_now = _mode(script)
         for radio, mode in ((self.own, "propria"), (self.synthetic, "sintetica"),
                             (self.original, "original")):
@@ -121,25 +125,6 @@ class ImportPage(Page):
         block_id = block["id"]
         return [button("Baixar vídeo completo", lambda block_id=block_id: self.download_source(block_id))]
 
-    def _ensure_permission(self, block) -> bool:
-        """O trecho só é baixado se o canal autorizou o uso, e a prova fica registrada."""
-        if block["channel_permission"] == "autorizado":
-            return True
-        proof, ok = QInputDialog.getText(
-            self, "Autorização do canal",
-            f"Baixar um trecho do canal “{block['channel_name']}” só é permitido com a "
-            "autorização dele. Se você tem, diga onde ela está registrada (e-mail, link, "
-            "contrato). Isso fica salvo no app.",
-        )
-        if not ok:
-            return False
-        try:
-            self.ctx.repo.set_channel_permission(block["channel_id"], proof)
-        except ValidationError as exc:
-            warn(self, str(exc))
-            return False
-        return True
-
     def download_source(self, block_id: int) -> None:
         if self._script_id is None:
             return
@@ -148,11 +133,9 @@ class ImportPage(Page):
         block = next((b for b in repo.list_blocks(self._script_id) if b["id"] == block_id), None)
         if block is None or not block["video_youtube_id"]:
             return
-        if not self._ensure_permission(block):
-            return
         try:
-            folder = script_dir(self.ctx.output_dir(), script["id"], script["title"]).parent
-            dest = folder / "fontes" / f"{block['video_youtube_id']}.mp4"
+            folder = raw_dir(self.ctx.output_dir())
+            dest = folder / f"{block['video_youtube_id']}.mp4"
         except (ValidationError, OSError) as exc:
             warn(self, f"Não foi possível preparar a pasta de saída: {exc}")
             return
@@ -168,8 +151,8 @@ class ImportPage(Page):
             path, total = result
             fields = {"media_path": clean_text(path, 1024)}
             if total > 0:
-                cut_start, cut_end = cut_range(
-                    start - CUT_BUFFER_S, end + CUT_BUFFER_S, total, MIN_OUTPUT_S, MAX_OUTPUT_S
+                cut_start, cut_end = context_cut(
+                    start, end, total, MIN_OUTPUT_S, MAX_OUTPUT_S, CUT_BUFFER_S
                 )
                 fields.update(duration_s=total, trim_start=cut_start, trim_end=cut_end)
             repo.update_block(block_id, **fields)

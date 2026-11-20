@@ -10,7 +10,7 @@ import logging
 import re
 import unicodedata
 from pathlib import Path
-from urllib.parse import urlsplit
+from urllib.parse import parse_qs, urlsplit
 
 CHANNEL_ID_RE = re.compile(r"^UC[A-Za-z0-9_-]{22}$")
 VIDEO_ID_RE = re.compile(r"^[A-Za-z0-9_-]{11}$")
@@ -100,9 +100,44 @@ def clean_theme(value: object) -> str:
     return text
 
 
+def parse_video_ref(value: object) -> str:
+    """Aceita o link (watch, youtu.be, shorts, live) ou o ID de um vídeo. Devolve o ID."""
+    tokens = value.split() if isinstance(value, str) else []
+    text = next((t for t in tokens if "youtu" in t.lower()), tokens[0] if tokens else "")
+    if text.lower().startswith(("youtube.com", "www.youtube.com", "m.youtube.com", "youtu.be")):
+        text = "https://" + text
+    if text.startswith(("https://", "http://")):
+        try:
+            parts = urlsplit(text)
+        except ValueError:
+            parts = None
+        segments = [s for s in parts.path.split("/") if s] if parts else []
+        host = (parts.hostname or "") if parts else ""
+        if host == "youtu.be" and segments:
+            text = segments[0]
+        elif host == "youtube.com" or host.endswith(".youtube.com"):
+            query_id = (parse_qs(parts.query).get("v") or [""])[0]
+            keys = ("shorts", "live", "embed", "v", "video", "vi")
+            after = next(
+                (segments[i + 1] for i, seg in enumerate(segments[:-1]) if seg in keys), ""
+            )
+            text = query_id or after
+            if not text:
+                raise ValidationError("O link não é de um vídeo do YouTube.")
+        else:
+            raise ValidationError("O link não é de um vídeo do YouTube.")
+    try:
+        return validate_video_id(text)
+    except ValidationError:
+        raise ValidationError("Cole o link do vídeo (ou o ID de 11 caracteres).") from None
+
+
 def parse_channel_ref(value: object) -> tuple[str, str]:
     """Aceita o ID (UC…), o @ do canal ou o link dele. Devolve ('id' | 'handle', valor)."""
-    text = value.strip() if isinstance(value, str) else ""
+    tokens = value.split() if isinstance(value, str) else []
+    text = next((t for t in tokens if "youtube.com" in t.lower()), tokens[0] if tokens else "")
+    if text.lower().startswith(("youtube.com", "www.youtube.com", "m.youtube.com")):
+        text = "https://" + text
     if text.startswith(("https://", "http://")):
         try:
             parts = urlsplit(text)

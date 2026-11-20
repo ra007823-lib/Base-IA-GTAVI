@@ -4,7 +4,8 @@ from __future__ import annotations
 
 from PySide6.QtCore import QTimer
 from PySide6.QtWidgets import (
-    QComboBox, QDialog, QDialogButtonBox, QFormLayout, QHBoxLayout, QLineEdit, QSpinBox,
+    QComboBox, QDialog, QDialogButtonBox, QFormLayout, QHBoxLayout, QInputDialog, QLineEdit,
+    QSpinBox,
     QTabWidget, QVBoxLayout, QWidget,
 )
 
@@ -15,8 +16,8 @@ from ...config import (
 from ...context import AppContext
 from ...pipeline.contracts import ChannelRef, SearchOptions
 from ...security import (
-    ValidationError, clean_text, clean_theme, parse_channel_ref, validate_channel_id,
-    validate_video_id, video_url,
+    ValidationError, clean_text, clean_theme, parse_channel_ref, parse_video_ref,
+    validate_channel_id, validate_video_id, video_url,
 )
 from ..widgets import (
     Card, Page, button, confirm, fill_table, fmt_date, fmt_time, label, make_table, open_url,
@@ -65,6 +66,7 @@ class RadarPage(Page):
             row(
                 button("Analisar com o Gemini", self.analyze_selected, True),
                 button("Abrir no YouTube", self.open_selected),
+                button("Adicionar vídeo por link…", self.add_video_by_link),
             )
         )
         self.root.addWidget(feed, 5)
@@ -233,6 +235,44 @@ class RadarPage(Page):
             return f"Busca por “{theme}”: {new} vídeo(s) novo(s)."
 
         self.ctx.run_task("Busca por tema", work, done)
+
+    def add_video_by_link(self) -> None:
+        """Acrescenta à lista um vídeo (por exemplo, do seu canal) a partir do link."""
+        text, ok = QInputDialog.getText(
+            self, "Adicionar vídeo por link",
+            "Cole o link do vídeo do YouTube (ou o ID de 11 caracteres):",
+        )
+        if not ok:
+            return
+        try:
+            video_id = parse_video_ref(text)
+        except ValidationError as exc:
+            warn(self, str(exc))
+            return
+        repo = self.ctx.repo
+        if video_id in repo.all_video_ids():
+            warn(self, "Este vídeo já está na lista ou já foi usado em uma publicação.")
+            return
+        radar = self.ctx.services.radar
+
+        def work(progress, cancelled):
+            return radar.fetch_video(video_id, progress, cancelled)
+
+        def done(video) -> str:
+            channel_id = repo.ensure_channel(
+                validate_channel_id(video.channel_youtube_id),
+                clean_text(video.channel_name, 80, required=True),
+            )
+            added = repo.add_video(
+                channel_id, validate_video_id(video.youtube_id),
+                clean_text(video.title, 200, required=True),
+                clean_text(video.published_at, 32, required=True),
+                max(int(video.duration_s), 0), "",
+            )
+            self.refresh()
+            return "Vídeo adicionado à lista." if added else "Este vídeo já estava na lista."
+
+        self.ctx.run_task("Vídeo por link", work, done)
 
     # ----- canais -----
 

@@ -13,7 +13,7 @@ from PySide6.QtGui import (
 )
 from PySide6.QtWidgets import (
     QAbstractItemView, QFrame, QHBoxLayout, QHeaderView, QLabel, QMessageBox, QPushButton,
-    QSizePolicy, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget,
+    QScrollArea, QSizePolicy, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget,
 )
 
 from ..security import is_allowed_url
@@ -66,7 +66,18 @@ class Page(QWidget):
     def __init__(self, title: str, subtitle: str) -> None:
         super().__init__()
         self.setObjectName("Page")
-        self.root = QVBoxLayout(self)
+        # O conteúdo rola quando a janela é pequena, em vez de espremer os componentes.
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        body = QWidget()
+        body.setObjectName("ScrollBody")
+        scroll.setWidget(body)
+        outer.addWidget(scroll)
+        self.root = QVBoxLayout(body)
         self.root.setContentsMargins(28, 24, 28, 20)
         self.root.setSpacing(14)
         self.root.addWidget(label(title, "H1"))
@@ -111,6 +122,7 @@ def make_table(headers: Sequence[str], stretch_column: int = 0) -> QTableWidget:
     table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
     table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
     table.verticalHeader().setVisible(False)
+    table.setMinimumHeight(220)
     table.setShowGrid(False)
     header = table.horizontalHeader()
     header.setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)

@@ -84,12 +84,6 @@ class SettingsPage(Page):
         self.max_duration.valueChanged.connect(
             lambda value: repo.set_setting("max_duration_s", str(value))
         )
-        self.per_video = QSpinBox()
-        self.per_video.setRange(1, 10)
-        self.per_video.setValue(int(repo.get_setting("curiosities_per_video")))
-        self.per_video.valueChanged.connect(
-            lambda value: repo.set_setting("curiosities_per_video", str(value))
-        )
         self.caption_style = QComboBox()
         self.caption_style.addItems(CAPTION_STYLES)
         self.caption_style.setCurrentText(repo.get_setting("caption_style"))
@@ -104,7 +98,6 @@ class SettingsPage(Page):
             lambda _: repo.set_setting("speech_provider", self.provider.currentData())
         )
         form.addRow("Duração máxima", self.max_duration)
-        form.addRow("Curiosidades por vídeo", self.per_video)
         form.addRow("Estilo das legendas", self.caption_style)
         form.addRow("Provedor da terceira IA", self.provider)
         self.model_inputs = {}

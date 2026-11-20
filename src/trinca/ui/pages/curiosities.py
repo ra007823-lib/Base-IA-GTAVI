@@ -13,7 +13,7 @@ from ...pipeline.script import manual_script_prompt, parse_pasted_script
 from ...security import video_url
 from ..paste_dialog import PasteDialog
 from ..widgets import (
-    Card, Page, button, confirm, fmt_time, label, open_url, row, status_text, warn,
+    Card, Page, button, fmt_time, label, open_url, row, status_text, warn,
 )
 
 
@@ -161,21 +161,8 @@ class CuriositiesPage(Page):
         open_url(self, video_url(current["video_youtube_id"], current["start_s"]))
 
     def _chosen_items(self):
-        """Curiosidades do roteiro, respeitando o limite por vídeo. None = usuário desistiu."""
-        repo = self.ctx.repo
-        rows = self._available_selected()
-        limit = int(repo.get_setting("curiosities_per_video"))
-        if len(rows) > limit:
-            if not confirm(
-                self,
-                f"Há {len(rows)} curiosidades selecionadas e o limite por vídeo é {limit}. "
-                f"O roteiro vai usar as {limit} primeiras. As que sobrarem de um vídeo usado "
-                "neste roteiro ficam bloqueadas, porque cada vídeo de origem só pode ser "
-                "usado uma vez. Continuar?",
-            ):
-                return None
-            rows = rows[:limit]
-        return to_inputs(rows)
+        """Todas as curiosidades selecionadas, sem limite por vídeo."""
+        return to_inputs(self._available_selected())
 
     def generate_pasted(self) -> None:
         """Roteiro escrito no chat do Claude: o app só monta o pedido e valida a resposta."""

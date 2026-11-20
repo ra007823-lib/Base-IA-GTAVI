@@ -27,7 +27,7 @@ from .contracts import (
 
 log = logging.getLogger(__name__)
 
-MAX_PER_PART = 5
+MAX_PER_PART = 15
 MAX_RESPONSE_CHARS = 200_000
 REQUEST_TIMEOUT_S = 600
 EDGE_TOLERANCE_S = 5
@@ -55,8 +55,11 @@ RESPONSE_SCHEMA = {
                     "title": {"type": "string"},
                     "description": {"type": "string"},
                     "scene_hint": {"type": "string"},
+                    "hook": {"type": "string"},
+                    "hotspot": {"type": "string"},
                 },
-                "required": ["start", "end", "title", "description", "scene_hint"],
+                "required": ["start", "end", "title", "description", "scene_hint", "hook",
+                             "hotspot"],
             },
         }
     },
@@ -102,7 +105,11 @@ def build_prompt(start: int, end: int | None, whole: bool, theme: str = "") -> s
         "- description: o que acontece ou o que é revelado, em até 2 frases, com palavras "
         "suas, sem transcrever a fala de quem apresenta;\n"
         "- scene_hint: uma imagem ou cena que outra pessoa pode gravar por conta própria "
-        "para ilustrar o momento, sem usar trechos deste vídeo.\n"
+        "para ilustrar o momento, sem usar trechos deste vídeo;\n"
+        "- hook: um gancho falado de até 11 palavras que explica de forma simples o tema "
+        "do momento, com palavras suas, para abrir um vídeo curto antes de mostrar a cena;\n"
+        "- hotspot: o instante exato do ponto mais forte do momento (o mais chamativo para "
+        "uma capa), no mesmo formato de start e end e entre eles.\n"
         "Escreva em português do Brasil. Se não houver momento curioso, devolva a lista vazia."
     )
 
@@ -121,9 +128,14 @@ def normalize_times(
         finish = parse_timestamp(item.get("end"))
     except ValidationError:
         return None
+    try:
+        peak = parse_timestamp(item.get("hotspot"))
+    except ValidationError:
+        peak = None
     if start > 0 and begin < start:
         begin += start
         finish += start
+        peak = peak + start if peak is not None else None
     if finish <= begin:
         finish = begin + 10
     upper = end if end is not None else (duration_s or None)
@@ -133,7 +145,7 @@ def normalize_times(
         finish = min(finish, upper + EDGE_TOLERANCE_S)
         if finish <= begin:
             return None
-    return {**item, "start_s": begin, "end_s": finish}
+    return {**item, "start_s": begin, "end_s": finish, "hotspot_s": peak}
 
 
 def _status_code(exc: Exception) -> int | None:

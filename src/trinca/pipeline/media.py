@@ -106,6 +106,40 @@ def cut_range(start: float, end: float, total: float, low: float, high: float) -
     return round(start, 2), round(end, 2)
 
 
+def context_cut(
+    start: float, end: float, total: float, low: float, high: float, buffer: float = 1.5
+) -> tuple[float, float]:
+    """Corte contínuo em volta de um ponto alto: um pouco de contexto antes e mais depois.
+
+    O momento (start, end) fica dentro do corte, que dura entre `low` e `high` segundos.
+    """
+    start, end = start - buffer, end + buffer
+    missing = low - (end - start)
+    if missing > 0:
+        start -= missing * 0.4
+        end += missing * 0.6
+    if start < 0:  # sem espaço antes: o que faltou vai para depois
+        end -= start
+        start = 0.0
+    return cut_range(start, end, total, low, high)
+
+
+def cuts_dir(output_dir: Path) -> Path:
+    """Pasta dos vídeos prontos (cortes renderizados)."""
+    base = output_dir.expanduser().resolve()
+    folder = ensure_within(base, base / "cortes")
+    folder.mkdir(parents=True, exist_ok=True)
+    return folder
+
+
+def raw_dir(output_dir: Path) -> Path:
+    """Pasta dos arquivos brutos (vídeos de origem baixados)."""
+    base = output_dir.expanduser().resolve()
+    folder = ensure_within(base, base / "brutos")
+    folder.mkdir(parents=True, exist_ok=True)
+    return folder
+
+
 def script_dir(output_dir: Path, script_id: int, title: str) -> Path:
     """Pasta de trabalho de um roteiro, dentro da pasta de saída."""
     base = output_dir.expanduser().resolve()

@@ -20,8 +20,8 @@ from ..security import ValidationError, clean_text, strip_urls
 Progress = Callable[[int, str], None]
 IsCancelled = Callable[[], bool]
 
-MAX_CURIOSITIES = 20
-MAX_BLOCKS = 10
+MAX_CURIOSITIES = 100
+MAX_BLOCKS = MAX_CURIOSITIES
 MAX_HASHTAGS = 8
 MAX_VIDEO_SECONDS = 12 * 60 * 60
 
@@ -77,6 +77,8 @@ class CuriosityDraft:
     title: str
     description: str
     scene_hint: str
+    hook_text: str = ""  # gancho falado de 3 a 5 s que abre o vídeo
+    hotspot_s: float = -1.0  # instante do ponto alto no vídeo de origem (-1 = não informado)
 
 
 @dataclass(frozen=True)
@@ -141,6 +143,8 @@ class RenderBlock:
     trim_end: float
     caption: str
     audio_offset_s: float  # início do bloco dentro da narração própria (soma dos anteriores)
+    hook_text: str = ""  # gancho falado antes do corte (só no modo de áudio original)
+    hotspot_s: float = -1.0  # instante do ponto alto no arquivo de vídeo, para o quadro congelado
 
 
 @dataclass(frozen=True)
@@ -168,6 +172,14 @@ def _number(value: object, field: str) -> float:
     return float(value)
 
 
+def _hotspot(value: object, start: float, end: float) -> float:
+    """Ponto alto dentro do momento; sem valor válido, usa o meio dele."""
+    if isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value):
+        if start <= value <= end:
+            return float(value)
+    return round((start + end) / 2, 2)
+
+
 def parse_curiosity(item: object) -> CuriosityDraft:
     """Valida uma curiosidade devolvida pelo analista."""
     if not isinstance(item, dict):
@@ -182,6 +194,8 @@ def parse_curiosity(item: object) -> CuriosityDraft:
         title=_ai_text(item.get("title"), 120, required=True),
         description=_ai_text(item.get("description"), 600, required=True),
         scene_hint=_ai_text(item.get("scene_hint", ""), 300),
+        hook_text=_ai_text(item.get("hook", ""), 140),
+        hotspot_s=_hotspot(item.get("hotspot_s"), start, end),
     )
 
 
@@ -203,7 +217,7 @@ def parse_script(payload: object, items: Sequence[CuriosityInput]) -> ScriptDraf
         raise ValidationError("O roteiro veio em formato inesperado.")
     raw_blocks = payload.get("blocks")
     if not isinstance(raw_blocks, list) or not 1 <= len(raw_blocks) <= MAX_BLOCKS:
-        raise ValidationError("O roteiro precisa ter entre 1 e 10 blocos.")
+        raise ValidationError(f"O roteiro precisa ter entre 1 e {MAX_BLOCKS} blocos.")
     by_id = {item.id: item for item in items}
     seen: set[int] = set()
     blocks = []

@@ -114,7 +114,10 @@ CREATE TABLE IF NOT EXISTS api_usage (
 _SCRIPT_FIELDS = frozenset(
     {"title", "status", "narration_mode", "narration_path", "render_path", "original_audio"}
 )
-_BLOCK_FIELDS = frozenset({"text", "caption", "media_path", "duration_s", "trim_start", "trim_end"})
+_BLOCK_FIELDS = frozenset(
+    {"text", "caption", "media_path", "duration_s", "trim_start", "trim_end", "hook_text",
+     "hotspot_s"}
+)
 _PUBLICATION_FIELDS = frozenset(
     {"title", "description", "hashtags", "status", "scheduled_at", "url", "package_path"}
 )
@@ -156,6 +159,10 @@ class Repository:
             ("channels", "monitored", "INTEGER NOT NULL DEFAULT 1"),
             ("videos", "theme", "TEXT NOT NULL DEFAULT ''"),
             ("scripts", "original_audio", "INTEGER NOT NULL DEFAULT 0"),
+            ("curiosities", "hook_text", "TEXT NOT NULL DEFAULT ''"),
+            ("curiosities", "hotspot_s", "REAL NOT NULL DEFAULT -1"),
+            ("script_blocks", "hook_text", "TEXT NOT NULL DEFAULT ''"),
+            ("script_blocks", "hotspot_s", "REAL NOT NULL DEFAULT -1"),
         )
         with self._conn:
             for table, column, definition in additions:
@@ -315,12 +322,14 @@ class Repository:
 
     def add_curiosities(self, video_id: int, drafts: Iterable) -> int:
         rows = [
-            (video_id, d.start_s, d.end_s, d.title, d.description, d.scene_hint) for d in drafts
+            (video_id, d.start_s, d.end_s, d.title, d.description, d.scene_hint,
+             getattr(d, "hook_text", ""), getattr(d, "hotspot_s", -1.0))
+            for d in drafts
         ]
         with self._conn:
             self._conn.executemany(
-                "INSERT INTO curiosities (video_id, start_s, end_s, title, description, scene_hint)"
-                " VALUES (?, ?, ?, ?, ?, ?)",
+                "INSERT INTO curiosities (video_id, start_s, end_s, title, description, scene_hint,"
+                " hook_text, hotspot_s) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
                 rows,
             )
             self._conn.execute("UPDATE videos SET status = 'analisado' WHERE id = ?", (video_id,))
@@ -376,9 +385,11 @@ class Repository:
             for position, block in enumerate(blocks, start=1):
                 self._conn.execute(
                     "INSERT INTO script_blocks (script_id, curiosity_id, position, text, caption,"
-                    " scene_hint) VALUES (?, ?, ?, ?, ?, ?)",
+                    " scene_hint, hook_text, hotspot_s)"
+                    " SELECT ?, ?, ?, ?, ?, ?, COALESCE(q.hook_text, ''), COALESCE(q.hotspot_s, -1)"
+                    " FROM (SELECT 1) LEFT JOIN curiosities q ON q.id = ?",
                     (script_id, block.curiosity_id, position, block.text, block.text,
-                     block.scene_hint),
+                     block.scene_hint, block.curiosity_id),
                 )
                 if block.curiosity_id is not None:
                     self._conn.execute(
