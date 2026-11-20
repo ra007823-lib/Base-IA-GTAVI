@@ -111,10 +111,14 @@ class YtDlpRadar:
         cancelled: IsCancelled,
     ) -> RadarResult:
         progress(40, "Lendo a lista de envios do canal")
-        info = _extract(
-            f"https://www.youtube.com/channel/{validate_channel_id(channel.youtube_id)}/videos",
-            extract_flat=True, playlistend=UPLOADS_PAGE_SIZE,
-        )
+        base = f"https://www.youtube.com/channel/{validate_channel_id(channel.youtube_id)}"
+        try:
+            info = _extract(f"{base}/videos", extract_flat=True, playlistend=UPLOADS_PAGE_SIZE)
+        except ServiceError:
+            # Sem a aba "Vídeos" o canal não tem envios públicos. Se a página do canal abre,
+            # não há vídeo novo; se nem ela abre, o erro é real (rede ou yt-dlp).
+            _extract(base, extract_flat=True, playlistend=1)
+            return RadarResult((), 0)
         new_ids = self._new_ids(_entries(info), known_ids)
         if not new_ids:
             return RadarResult((), 0)
