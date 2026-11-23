@@ -12,7 +12,7 @@ from pathlib import Path
 
 from ...config import MAX_OUTPUT_S, MIN_OUTPUT_S
 from ...context import AppContext
-from ...pipeline.contracts import RenderBlock, RenderJob
+from ...pipeline.contracts import RenderBlock, RenderJob, default_hook
 from ...security import ValidationError, clean_text
 from .. import theme
 from ..widgets import Card, Page, button, chip, clear_layout, confirm, fmt_time, label, row, warn
@@ -220,7 +220,7 @@ class ReviewPage(Page):
         self.caption.setPlaceholderText("Legenda do bloco")
         self.hook = QPlainTextEdit()
         self.hook.setPlaceholderText(
-            "Gancho falado (3 a 5 s) antes do corte, só no áudio original. Vazio = sem gancho."
+            "Introdução falada (3 a 7 s) antes do corte, só no áudio original. Vazio = usa o texto do roteiro."
         )
         self.hook.setMaximumHeight(72)
         self.hotspot = QDoubleSpinBox()
@@ -376,10 +376,16 @@ class ReviewPage(Page):
         repo = self.ctx.repo
         script = repo.get_script(script_id)
         blocks, offset = [], 0.0
+        original = bool(script["original_audio"])
         for block in repo.list_blocks(script_id):
+            hook = block["hook_text"]
+            if original and not hook.strip():
+                # Sem gancho vindo da análise, a introdução usa o texto do próprio roteiro.
+                hook = default_hook(block["text"], block["caption"])
+                repo.update_block(block["id"], hook_text=hook)
             blocks.append(RenderBlock(
                 block["id"], block["media_path"], block["trim_start"], block["trim_end"],
-                block["caption"], offset, block["hook_text"], block["hotspot_s"],
+                block["caption"], offset, hook, block["hotspot_s"],
             ))
             offset += block["duration_s"]
         job = RenderJob(

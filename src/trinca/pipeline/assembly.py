@@ -19,7 +19,7 @@ from .narration import synthesize_text
 DEMO_MEDIA = "demo://midia"
 DEMO_RENDER = "demo://render"
 WIDTH, HEIGHT, FPS = 1080, 1920, 30
-HOOK_MIN_S, HOOK_MAX_S = 3.0, 5.0
+HOOK_MIN_S, HOOK_MAX_S = 3.0, 7.0
 # Quadro em 9:16 com o vídeo inteiro sobre um fundo desfocado.
 _FIT_GRAPH = (
     f"[0:v]split[a][b];"
@@ -101,8 +101,12 @@ class FfmpegAssembler:
         O mesmo quadro vira a capa (capa.jpg), que serve como imagem de abertura.
         """
         frame = folder / f"quadro-{block.block_id}.jpg"
+        spot = block.hotspot_s
+        if not block.trim_start <= spot < block.trim_end:
+            # Sem ponto alto válido dentro do corte: usa um instante logo após o começo dele.
+            spot = block.trim_start + 0.4 * (block.trim_end - block.trim_start)
         run_ffmpeg(
-            ["-ss", f"{block.hotspot_s:.3f}", "-i", str(media), "-frames:v", "1", "-q:v", "2",
+            ["-ss", f"{spot:.3f}", "-i", str(media), "-frames:v", "1", "-q:v", "2",
              frame.name],
             cancelled, cwd=folder,
         )
@@ -151,7 +155,7 @@ class FfmpegAssembler:
         args = ["-ss", f"{block.trim_start:.3f}", "-t", f"{length:.3f}", "-i", str(media)]
         if job.narration_mode == "original":
             cut = FfmpegAssembler._cut(args, out, length, folder, cancelled)
-            if not block.hook_text.strip() or not 0 <= block.hotspot_s:
+            if not block.hook_text.strip():
                 return cut
             return FfmpegAssembler._with_hook(job, block, media, cut, folder, cancelled)
         ass = folder / f"legenda-{block.block_id}.ass"

@@ -172,6 +172,26 @@ def _number(value: object, field: str) -> float:
     return float(value)
 
 
+HOOK_MAX_WORDS = 16  # cabe em 7 s de voz (cerca de 2,6 palavras por segundo)
+
+
+def default_hook(*texts: str) -> str:
+    """Gancho padrão: o primeiro texto não vazio (do roteiro ou da curiosidade), até 16 palavras.
+
+    Corta no fim de uma frase quando possível, para a voz não parar no meio.
+    """
+    for text in texts:
+        words = (text or "").split()
+        if not words:
+            continue
+        chunk = " ".join(words[:HOOK_MAX_WORDS])
+        cut = max(chunk.rfind("."), chunk.rfind("!"), chunk.rfind("?"))
+        if len(words) > HOOK_MAX_WORDS and cut > len(chunk) // 2:
+            chunk = chunk[: cut + 1]
+        return chunk
+    return ""
+
+
 def _hotspot(value: object, start: float, end: float) -> float:
     """Ponto alto dentro do momento; sem valor válido, usa o meio dele."""
     if isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value):

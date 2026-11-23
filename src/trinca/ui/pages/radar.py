@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import time
+
 from PySide6.QtCore import QTimer
 from PySide6.QtWidgets import (
     QComboBox, QDialog, QDialogButtonBox, QFormLayout, QHBoxLayout, QInputDialog, QLineEdit,
-    QSpinBox,
+    QPlainTextEdit, QSpinBox,
     QTabWidget, QVBoxLayout, QWidget,
 )
 
@@ -70,6 +72,24 @@ class RadarPage(Page):
             )
         )
         self.root.addWidget(feed, 5)
+
+        self.progress_card = Card("Andamento da análise")
+        self.progress_clock = label("", "Muted")
+        self.progress_log = QPlainTextEdit()
+        self.progress_log.setReadOnly(True)
+        self.progress_log.setMinimumHeight(150)
+        self.progress_log.setPlaceholderText(
+            "Ao analisar um vídeo, aqui aparecem o trecho que o Gemini está assistindo e cada "
+            "momento encontrado."
+        )
+        self.progress_card.body.addWidget(self.progress_clock)
+        self.progress_card.body.addWidget(self.progress_log)
+        self.root.addWidget(self.progress_card, 3)
+        self._analysis_started = 0.0
+        self._clock_timer = QTimer(self)
+        self._clock_timer.timeout.connect(self._tick_clock)
+        ctx.task_progress.connect(self._log_progress)
+        ctx.task_ended.connect(self._analysis_ended)
 
         self.timer = QTimer(self)
         self.timer.timeout.connect(self._automatic_check)
@@ -387,6 +407,25 @@ class RadarPage(Page):
             return None
         return next(v for v in self.ctx.repo.list_videos() if v["id"] == video_id)
 
+    def _tick_clock(self) -> None:
+        seconds = int(time.monotonic() - self._analysis_started)
+        self.progress_clock.setText(
+            f"Analisando há {seconds // 60:02d}:{seconds % 60:02d}. O Gemini pode levar vários "
+            "minutos em cada parte de vídeos longos; o app não travou."
+        )
+
+    def _log_progress(self, percent: int, step: str) -> None:
+        if not self._clock_timer.isActive():
+            return
+        if self.progress_log.toPlainText().splitlines()[-1:] != [step]:
+            self.progress_log.appendPlainText(step)
+
+    def _analysis_ended(self, text: str, ok: bool) -> None:
+        if self._clock_timer.isActive():
+            self._clock_timer.stop()
+            self.progress_log.appendPlainText(text)
+            self.progress_clock.setText("")
+
     def analyze_selected(self) -> None:
         video = self._selected_video()
         if video is None:
@@ -423,7 +462,15 @@ class RadarPage(Page):
             self.refresh()
             return f"Análise concluída: {count} curiosidades extraídas."
 
-        self.ctx.run_task("Análise do vídeo", work, done)
+        if self.ctx.busy:
+            self.ctx.message.emit("Aguarde a tarefa atual terminar.")
+            return
+        self.progress_log.clear()
+        self._analysis_started = time.monotonic()
+        self._clock_timer.start(1000)
+        self._tick_clock()
+        if not self.ctx.run_task("Análise do vídeo", work, done):
+            self._clock_timer.stop()
 
     def open_selected(self) -> None:
         video = self._selected_video()

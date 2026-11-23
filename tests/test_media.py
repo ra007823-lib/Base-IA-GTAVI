@@ -155,3 +155,25 @@ def test_original_audio_cut_opens_with_hook_and_saves_cover(tmp_path, monkeypatc
     assert probe_duration(final) == pytest.approx(3.0 + 4.0, abs=0.4)
     assert final.with_suffix(".jpg").is_file()  # capa ao lado do corte
     assert list(script_dir(tmp_path / "saida", 9, "Gancho").iterdir()) == []
+
+
+def test_hook_intro_uses_fallback_spot_and_default_text(tmp_path, monkeypatch):
+    from trinca.pipeline.contracts import default_hook
+
+    assert default_hook("", "Um fato. " + "palavra " * 30).startswith("Um fato.")
+    assert default_hook("", "") == ""
+    clip = _make(tmp_path, "origem.mp4", "testsrc2", 6)
+
+    def fake_voice(text, target):
+        subprocess.run(
+            [ffmpeg_path(), "-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi", "-i",
+             "sine=frequency=400:duration=2", str(target)], check=True,
+        )
+
+    monkeypatch.setattr("trinca.pipeline.assembly.synthesize_text", fake_voice)
+    job = RenderJob(
+        10, "Sem ponto alto", (RenderBlock(1, str(clip), 1.0, 5.0, "", 0.0, "Introdução simples", -1.0),),
+        "original", "", "Neon", str(tmp_path / "saida"),
+    )
+    final = Path(FfmpegAssembler().render(job, quiet, never))
+    assert probe_duration(final) == pytest.approx(3.0 + 4.0, abs=0.4)

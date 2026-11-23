@@ -106,7 +106,7 @@ def build_prompt(start: int, end: int | None, whole: bool, theme: str = "") -> s
         "suas, sem transcrever a fala de quem apresenta;\n"
         "- scene_hint: uma imagem ou cena que outra pessoa pode gravar por conta própria "
         "para ilustrar o momento, sem usar trechos deste vídeo;\n"
-        "- hook: um gancho falado de até 11 palavras que explica de forma simples o tema "
+        "- hook: um gancho falado de até 16 palavras que explica de forma simples o tema "
         "do momento, com palavras suas, para abrir um vídeo curto antes de mostrar a cena;\n"
         "- hotspot: o instante exato do ponto mais forte do momento (o mais chamativo para "
         "uma capa), no mesmo formato de start e end e entre eles.\n"
@@ -238,17 +238,36 @@ class GeminiAnalyst:
         for index, (start, end) in enumerate(windows):
             if cancelled():
                 raise Cancelled()
-            progress(
-                int(index * 100 / len(windows)),
-                f"O Gemini está assistindo à parte {index + 1} de {len(windows)}",
+            total = len(windows)
+            span = (
+                "o vídeo inteiro" if end is None or total == 1
+                else f"{_clock(start)} a {_clock(end)}"
             )
-            prompt = build_prompt(start, end, len(windows) == 1, theme)
-            for item in self._request(client, model, url, start, end, len(windows) == 1, prompt):
+            progress(
+                int(index * 100 / total),
+                f"Parte {index + 1} de {total}: o Gemini está assistindo {span}"
+                + (f" (de {_clock(duration_s)})" if duration_s and total > 1 else "")
+                + f" · {len(drafts)} momento(s) até agora",
+            )
+            prompt = build_prompt(start, end, total == 1, theme)
+            found = 0
+            for item in self._request(client, model, url, start, end, total == 1, prompt):
                 normalized = normalize_times(item, start, end, duration_s) if isinstance(item, dict) else None
                 try:
-                    drafts.append(parse_curiosity(normalized))
+                    draft = parse_curiosity(normalized)
                 except ValidationError:
                     discarded += 1
+                    continue
+                drafts.append(draft)
+                found += 1
+                progress(
+                    int((index + found / (MAX_PER_PART + 1)) * 100 / total),
+                    f"Encontrado em {_clock(int(draft.start_s))}: {draft.title}",
+                )
+            progress(
+                int((index + 1) * 100 / total),
+                f"Parte {index + 1} de {total} concluída: {found} momento(s) nesta parte",
+            )
         if cancelled():
             raise Cancelled()
         if discarded:
