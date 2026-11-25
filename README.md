@@ -53,6 +53,10 @@ Testes:
 
 O FFmpeg do sistema é usado se existir (`sudo apt install ffmpeg`); sem ele, o app usa o binário do pacote imageio-ffmpeg. No primeiro uso do Whisper, o modelo `base` (cerca de 150 MB) é baixado; se falhar, o app divide a sua gravação pelo tamanho dos textos. **Cortes de vídeos reais:** na Importação, "Baixar vídeo completo" baixa o vídeo de origem (até 1080p, no máximo 3 horas, reaproveitado se já existir) e ajusta o corte inicial para durar de 30 s a 1 min 30 s a partir da curiosidade. Escolha "Áudio original do vídeo" para manter o som original, sem narração nem legenda; o quadro 16:9 entra inteiro sobre um fundo desfocado em 9:16. Na Revisão você ajusta início e fim do corte. O vídeo final nunca passa de 90 s (limite fixo) e o app avisa abaixo de 30 s. O download não pede mais autorização do canal: o uso do conteúdo de terceiros é de responsabilidade de quem publica.
 
+**Pastas dos vídeos:** por padrão ficam em `~/Vídeos/Macaco`: `brutos/` guarda os vídeos baixados do YouTube e `cortes/` os vídeos prontos (com a capa `.jpg` ao lado). A aba Biblioteca mostra, toca e exclui esses arquivos. Na primeira abertura desta versão, o app move a pasta antiga (`~/.local/share/trinca/saida`) para lá. Dá para trocar a pasta em Configurações.
+
+**Busca para o público brasileiro:** no Radar, "Público: Brasil" faz a busca como um usuário brasileiro e só mantém vídeos em português (estimativa pelo título e pela descrição); "Tamanho do canal" descarta canais abaixo do número de inscritos escolhido, e "Maiores canais" ordena pelos inscritos.
+
 A voz sintética (edge-tts) envia o texto de cada bloco ao serviço de voz da Microsoft, sem chave.
 
 ## Como usar o modo real

@@ -7,8 +7,9 @@ cota da YouTube Data API, então as unidades devolvidas são sempre 0.
 from __future__ import annotations
 
 import logging
+import re
 from datetime import datetime, timedelta
-from typing import Any
+from typing import Any, Callable
 
 from ..config import SEARCH_PAGE_SIZE
 from ..security import (
@@ -24,7 +25,37 @@ log = logging.getLogger(__name__)
 
 UPLOADS_PAGE_SIZE = 10
 _POOL = SEARCH_PAGE_SIZE * 2  # resultados lidos antes de filtrar por duração e data
-_ORDERS = frozenset({"relevance", "date", "viewCount"})
+_ORDERS = frozenset({"relevance", "date", "viewCount", "subscribers"})
+_AUDIENCES = frozenset({"br", "any"})
+_SIZES = frozenset({0, 100_000, 500_000, 1_000_000})
+# Busca como um usuário brasileiro: interface em português e região Brasil.
+_BRAZIL = {"extractor_args": {"youtube": {"lang": ["pt"]}}, "geo_bypass_country": "BR"}
+
+_WORD_RE = re.compile(r"[a-zà-ú]+")
+_PT_WORDS = frozenset(
+    "não nao você voce vocês pra isso essa esse está tá também tambem muito jogo jogando "
+    "joguei vamos hoje tudo nada coisas coisa segredo segredos curiosidades melhor melhores "
+    "primeira primeiro parte vivo ao que com uma um meu minha nosso novo nova agora ainda "
+    "quando onde porque mas mais sobre fiz fui achei descobri olha veja finalmente zerando "
+    "zerei episódio dia".split()
+)
+_OTHER_WORDS = frozenset(
+    "the and you your with what how this that is are was in of for my everything new first "
+    "full walkthrough commentary game el los las del en sin abierto juego jugando muy pero "
+    "también nuevo primera".split()
+)
+
+
+def looks_portuguese(*texts: str) -> bool:
+    """Estimativa simples de que o vídeo é em português (título e começo da descrição)."""
+    text = " ".join(t or "" for t in texts).lower()
+    # Links e domínios (instagram.com, PS5 PRO...) não dizem nada sobre o idioma.
+    text = re.sub(r"\S*(https?://|www\.|\.com|\.br)\S*", " ", text)
+    words = _WORD_RE.findall(text)
+    score = sum(w in _PT_WORDS for w in words) - sum(w in _OTHER_WORDS for w in words)
+    score += 2 * len(re.findall(r"[ãõç]", text))
+    return score >= 1
+
 _DURATIONS = {"any": (0, 10**9), "short": (1, 240), "medium": (240, 1200), "long": (1200, 10**9)}
 _PERIODS = frozenset({0, 1, 7, 30, 365})
 _BASE = {"quiet": True, "no_warnings": True, "skip_download": True, "socket_timeout": 20,
@@ -133,21 +164,41 @@ class YtDlpRadar:
             options.order not in _ORDERS
             or options.duration not in _DURATIONS
             or options.period_days not in _PERIODS
+            or options.audience not in _AUDIENCES
+            or options.min_subscribers not in _SIZES
         ):
             raise ValidationError("Opção de busca inválida.")
-        progress(20, "Buscando vídeos sobre o tema no YouTube")
-        info = _extract(f"ytsearch{_POOL}:{clean_theme(theme)}", extract_flat=True)
+        brazil = options.audience == "br"
+        filtered = brazil or options.min_subscribers > 0
+        progress(20, "Buscando vídeos sobre o tema no YouTube"
+                     + (" (público brasileiro)" if brazil else ""))
+        info = _extract(
+            f"ytsearch{_POOL * 2 if filtered else _POOL}:{clean_theme(theme)}",
+            extract_flat=True, **(_BRAZIL if brazil else {}),
+        )
         low, high = _DURATIONS[options.duration]
         candidates = [
             e for e in _entries(info)
             if isinstance(e.get("duration"), (int, float)) and low <= e["duration"] < high
         ]
         views = {e.get("id"): e.get("view_count") or 0 for e in candidates}
-        new_ids = self._new_ids(candidates, known_ids)[:SEARCH_PAGE_SIZE]
+        new_ids = self._new_ids(candidates, known_ids)[
+            : SEARCH_PAGE_SIZE * 2 if filtered else SEARCH_PAGE_SIZE
+        ]
         if not new_ids:
             return RadarResult((), 0)
+
+        def accept(item: dict) -> bool:
+            followers = item.get("channel_follower_count")
+            followers = followers if isinstance(followers, int) else 0
+            if followers < options.min_subscribers:
+                return False
+            return not brazil or looks_portuguese(
+                str(item.get("title") or ""), str(item.get("description") or "")[:400]
+            )
+
         progress(40, "Buscando os detalhes dos vídeos encontrados")
-        found = list(self._details(new_ids, cancelled, progress))
+        found = list(self._details(new_ids, cancelled, progress, accept))
         if options.period_days:
             since = datetime.now() - timedelta(days=options.period_days)
             found = [v for v in found if datetime.fromisoformat(v.published_at) >= since]
@@ -155,7 +206,9 @@ class YtDlpRadar:
             found.sort(key=lambda v: v.published_at, reverse=True)
         elif options.order == "viewCount":
             found.sort(key=lambda v: views.get(v.youtube_id, 0), reverse=True)
-        return RadarResult(tuple(found), 0)
+        elif options.order == "subscribers":
+            found.sort(key=lambda v: v.subscribers, reverse=True)
+        return RadarResult(tuple(found[:SEARCH_PAGE_SIZE]), 0)
 
     @staticmethod
     def _new_ids(entries: list[dict], known_ids: set[str]) -> list[str]:
@@ -170,7 +223,8 @@ class YtDlpRadar:
         return ids
 
     def _details(
-        self, video_ids: list[str], cancelled: IsCancelled, progress: Progress | None = None
+        self, video_ids: list[str], cancelled: IsCancelled, progress: Progress | None = None,
+        accept: Callable[[dict], bool] | None = None,
     ) -> tuple[DetectedVideo, ...]:
         videos = []
         for index, video_id in enumerate(video_ids):
@@ -192,6 +246,9 @@ class YtDlpRadar:
                 or moment is None or not isinstance(duration, (int, float)) or duration <= 0
             ):
                 continue
+            if accept is not None and not accept(item):
+                continue
+            followers = item.get("channel_follower_count")
             try:
                 videos.append(DetectedVideo(
                     youtube_id=validate_video_id(item.get("id")),
@@ -200,6 +257,7 @@ class YtDlpRadar:
                     duration_s=int(duration),
                     channel_youtube_id=validate_channel_id(item.get("channel_id")),
                     channel_name=clean_text(item.get("channel"), 80, required=True),
+                    subscribers=followers if isinstance(followers, int) and followers > 0 else 0,
                 ))
             except ValidationError:
                 log.warning("Vídeo ignorado: o YouTube devolveu dados inesperados.")

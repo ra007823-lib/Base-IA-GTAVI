@@ -112,7 +112,8 @@ class LibraryPage(Page):
         raw_rows = []
         folder = raw_dir(output)
         for index, path in enumerate(sorted(folder.iterdir(), key=lambda p: -p.stat().st_mtime)):
-            if path.is_file():
+            # Downloads interrompidos (.part, .ytdl) não aparecem como arquivo pronto.
+            if path.is_file() and path.suffix not in (".part", ".ytdl"):
                 self._raws[index] = path
                 raw_rows.append((index, (path.name, _size(path), _modified(path))))
         fill_table(self.raw_table, raw_rows)

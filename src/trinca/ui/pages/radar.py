@@ -12,8 +12,8 @@ from PySide6.QtWidgets import (
 )
 
 from ...config import (
-    GEMINI_FREE_DAILY_VIDEO_S, SEARCH_COST_UNITS, SEARCH_DURATIONS,
-    SEARCH_ORDERS, SEARCH_PERIODS, YOUTUBE_DAILY_QUOTA,
+    GEMINI_FREE_DAILY_VIDEO_S, SEARCH_AUDIENCES, SEARCH_CHANNEL_SIZES, SEARCH_COST_UNITS,
+    SEARCH_DURATIONS, SEARCH_ORDERS, SEARCH_PERIODS, YOUTUBE_DAILY_QUOTA,
 )
 from ...context import AppContext
 from ...pipeline.contracts import ChannelRef, SearchOptions
@@ -122,7 +122,11 @@ class RadarPage(Page):
         self.order = self._combo(SEARCH_ORDERS, "search_order")
         self.period = self._combo(SEARCH_PERIODS, "search_period_days")
         self.duration = self._combo(SEARCH_DURATIONS, "search_duration")
+        self.audience = self._combo(SEARCH_AUDIENCES, "search_audience")
+        self.channel_size = self._combo(SEARCH_CHANNEL_SIZES, "search_min_subscribers")
         form.addRow("Tema", self.theme_input)
+        form.addRow("Público", self.audience)
+        form.addRow("Tamanho do canal", self.channel_size)
         form.addRow("Ordenar por", self.order)
         form.addRow("Publicados", self.period)
         form.addRow("Duração", self.duration)
@@ -130,8 +134,8 @@ class RadarPage(Page):
         search.addLayout(
             row(
                 button("Buscar vídeos", self.search_theme, True),
-                label(f"Cada busca gasta {SEARCH_COST_UNITS + 1} unidades da cota diária "
-                      "do YouTube.", "Muted"),
+                label("Com “Brasil”, só entram vídeos em português de canais do tamanho "
+                      "escolhido. A busca demora mais, porque confere cada vídeo.", "Muted"),
             )
         )
         search.addStretch(1)
@@ -225,7 +229,8 @@ class RadarPage(Page):
                        "A busca por tema volta a funcionar amanhã.")
             return
         options = SearchOptions(
-            self.order.currentData(), self.period.currentData(), self.duration.currentData()
+            self.order.currentData(), self.period.currentData(), self.duration.currentData(),
+            self.audience.currentData(), self.channel_size.currentData(),
         )
         known = repo.all_video_ids()
         radar = self.ctx.services.radar

@@ -55,6 +55,7 @@ class DetectedVideo:
     duration_s: int = 0
     channel_youtube_id: str = ""
     channel_name: str = ""
+    subscribers: int = 0  # inscritos do canal (0 = desconhecido)
 
 
 @dataclass(frozen=True)
@@ -62,6 +63,8 @@ class SearchOptions:
     order: str = "relevance"  # relevance | date | viewCount
     period_days: int = 0  # 0 = qualquer data
     duration: str = "any"  # any | short | medium | long
+    audience: str = "any"  # br (vídeos em português, região Brasil) | any
+    min_subscribers: int = 0  # inscritos mínimos do canal (0 = qualquer)
 
 
 @dataclass(frozen=True)

@@ -688,3 +688,40 @@ def test_ytdlp_radar_search_filters_and_sorts(monkeypatch):
     assert [v.youtube_id for v in week.videos] == ["ccccccccccc", "known000001"]
     with pytest.raises(ValidationError):
         radar.search("tema", SearchOptions("x", 0, "any"), set(), quiet, never)
+
+
+def test_ytdlp_radar_brazil_filter_keeps_big_portuguese_channels(monkeypatch):
+    from datetime import datetime
+    from trinca.pipeline import youtube_search as ys
+
+    assert ys.looks_portuguese("GTA 6 - Fui na PRAIA, e NÃO ACREDITO QUE VI ISSO!")
+    assert not ys.looks_portuguese("GTA 6 Gameplay Walkthrough FULL GAME [4K PS5 PRO]")
+    assert not ys.looks_portuguese("1 HORA de MUNDO ABIERTO en GTA 6 (Sin Spoilers)")
+    now = datetime.now().timestamp()
+    flat = {"entries": [{"id": f"vid00000{i:03d}", "duration": 600} for i in range(4)]}
+    detail = {
+        "vid00000000": ("Vamos zerar o jogo hoje", 2_000_000),
+        "vid00000001": ("Full game walkthrough", 5_000_000),  # inglês: fora
+        "vid00000002": ("Achei um segredo no mapa", 50_000),  # canal pequeno: fora
+        "vid00000003": ("Coisas que você não sabia", 9_000_000),
+    }
+    seen = {}
+
+    def fake_extract(url, **extra):
+        if url.startswith("ytsearch"):
+            seen.update(extra)
+            return flat
+        vid = url.rsplit("=", 1)[1]
+        title, subs = detail[vid]
+        return {"id": vid, "duration": 600, "channel_id": CHANNEL, "channel": "Canal",
+                "live_status": "not_live", "timestamp": now - 3600, "title": title,
+                "channel_follower_count": subs}
+
+    monkeypatch.setattr(ys, "_extract", fake_extract)
+    result = ys.YtDlpRadar().search(
+        "tema", SearchOptions("subscribers", 0, "any", "br", 100_000), set(), quiet, never)
+    assert [v.youtube_id for v in result.videos] == ["vid00000003", "vid00000000"]
+    assert result.videos[0].subscribers == 9_000_000
+    assert seen["geo_bypass_country"] == "BR"
+    with pytest.raises(ValidationError):
+        ys.YtDlpRadar().search("tema", SearchOptions(min_subscribers=7), set(), quiet, never)

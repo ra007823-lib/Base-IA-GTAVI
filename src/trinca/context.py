@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Sequence
 
 from PySide6.QtCore import QObject, QThreadPool, Signal, Slot
 
-from .config import data_dir, default_output_dir
+from .config import data_dir, default_output_dir, legacy_output_dir
 from .credentials import CredentialError, CredentialStore
 from .db import Repository
 from .demo_data import DEMO_CHANNELS, DEMO_VIDEOS
@@ -23,6 +24,8 @@ from .pipeline.script import ClaudeWriter, DemoWriter, GeminiWriter, RoutedWrite
 from .pipeline.youtube_browser import BrowserYouTube
 from .pipeline.youtube_search import YtDlpRadar
 from .security import ValidationError, validate_model_name
+
+log = logging.getLogger(__name__)
 from .tasks import Task, TaskFn
 
 # Etapas que continuam simuladas no modo real até as etapas 3 e 4 do projeto.
@@ -242,6 +245,43 @@ def seed_demo(repo: Repository) -> None:
     repo.add_usage("claude", 2)
 
 
+def migrate_output_dir() -> None:
+    """Leva os vídeos da pasta antiga (escondida) para ~/Vídeos/Macaco, uma vez só.
+
+    Os caminhos gravados nos bancos (real e demonstração) passam a apontar para a pasta nova.
+    """
+    import shutil
+    import sqlite3
+
+    old, new = legacy_output_dir(), default_output_dir()
+    if old == new or not old.is_dir() or new.exists():
+        return
+    try:
+        new.parent.mkdir(parents=True, exist_ok=True)
+        shutil.move(str(old), str(new))
+    except OSError as exc:
+        log.warning("Não consegui mover a pasta de vídeos: %s", exc)
+        return
+    columns = (("script_blocks", "media_path"), ("scripts", "render_path"),
+               ("scripts", "narration_path"), ("publications", "package_path"))
+    for name in ("trinca.sqlite3", "demo.sqlite3"):
+        path = data_dir() / name
+        if not path.is_file():
+            continue
+        try:
+            conn = sqlite3.connect(str(path))
+            with conn:
+                for table, column in columns:
+                    conn.execute(
+                        f"UPDATE {table} SET {column} = ? || substr({column}, ?)"
+                        f" WHERE substr({column}, 1, ?) = ?",
+                        (str(new), len(str(old)) + 1, len(str(old)), str(old)),
+                    )
+            conn.close()
+        except sqlite3.Error as exc:
+            log.warning("Não consegui atualizar os caminhos em %s: %s", name, exc)
+
+
 def build_context(
     demo: bool = True, delay: float | None = None, credentials: CredentialStore | None = None
 ) -> AppContext:
@@ -250,6 +290,7 @@ def build_context(
     Cada modo tem o seu banco: os dados fictícios nunca se misturam aos reais.
     """
     store = credentials or CredentialStore()
+    migrate_output_dir()
     if demo:
         repo = Repository(data_dir() / "demo.sqlite3")
         seed_demo(repo)

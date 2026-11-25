@@ -26,7 +26,7 @@ from .youtube_api import YouTubeApi
 log = logging.getLogger(__name__)
 
 UPLOADS_PAGE_SIZE = 10
-_ORDERS = frozenset({"relevance", "date", "viewCount"})
+_ORDERS = frozenset({"relevance", "date", "viewCount", "subscribers"})
 _DURATIONS = frozenset({"any", "short", "medium", "long"})
 _PERIODS = frozenset({0, 1, 7, 30, 365})
 
@@ -143,7 +143,8 @@ class YouTubeRadar:
             raise ValidationError("Opção de busca inválida.")
         params = {
             "part": "snippet", "type": "video", "q": clean_theme(theme),
-            "maxResults": str(SEARCH_PAGE_SIZE), "order": options.order,
+            "maxResults": str(SEARCH_PAGE_SIZE),
+            "order": "relevance" if options.order == "subscribers" else options.order,
             "videoDuration": options.duration, "regionCode": SEARCH_REGION,
             "relevanceLanguage": SEARCH_LANGUAGE, "safeSearch": "moderate",
         }

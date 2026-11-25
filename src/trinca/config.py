@@ -34,7 +34,11 @@ SEARCH_PAGE_SIZE = 15
 SEARCH_REGION = "BR"
 SEARCH_LANGUAGE = "pt"
 SEARCH_ORDERS = (("Mais relevantes", "relevance"), ("Mais recentes", "date"),
-                 ("Mais vistos", "viewCount"))
+                 ("Mais vistos", "viewCount"), ("Maiores canais", "subscribers"))
+SEARCH_AUDIENCES = (("Brasil (vídeos em português)", "br"), ("Qualquer país e idioma", "any"))
+SEARCH_CHANNEL_SIZES = (("Qualquer tamanho", 0), ("A partir de 100 mil inscritos", 100_000),
+                        ("A partir de 500 mil inscritos", 500_000),
+                        ("A partir de 1 milhão de inscritos", 1_000_000))
 SEARCH_PERIODS = (("Qualquer data", 0), ("Últimas 24 horas", 1), ("Última semana", 7),
                   ("Último mês", 30), ("Último ano", 365))
 SEARCH_DURATIONS = (("Qualquer duração", "any"), ("Até 4 minutos", "short"),
@@ -62,6 +66,8 @@ DEFAULT_SETTINGS = {
     "search_order": "relevance",
     "search_period_days": "0",
     "search_duration": "any",
+    "search_audience": "br",
+    "search_min_subscribers": "100000",
 }
 
 # Voz neural em português do Brasil e modelo do Whisper (baixado no primeiro uso).
@@ -85,7 +91,36 @@ def data_dir() -> Path:
     return base
 
 
+def videos_dir() -> Path:
+    """Pasta "Vídeos" do usuário (XDG), em qualquer idioma do sistema."""
+    home = Path.home()
+    dirs = Path(os.environ.get("XDG_CONFIG_HOME") or home / ".config") / "user-dirs.dirs"
+    try:
+        for line in dirs.read_text(encoding="utf-8").splitlines():
+            if line.startswith("XDG_VIDEOS_DIR="):
+                value = line.split("=", 1)[1].strip().strip('"').replace("$HOME", str(home))
+                if value and Path(value).is_absolute() and Path(value) != home:
+                    return Path(value)
+    except OSError:
+        pass
+    for name in ("Vídeos", "Videos"):
+        if (home / name).is_dir():
+            return home / name
+    return home / "Videos"
+
+
 def default_output_dir() -> Path:
+    """Pasta visível dos vídeos: ~/Vídeos/Macaco, com as subpastas brutos/ e cortes/.
+
+    Com TRINCA_DATA_DIR (testes), fica dentro da pasta de dados, isolada da pasta pessoal.
+    """
+    if os.environ.get("TRINCA_DATA_DIR"):
+        return data_dir() / "saida"
+    return videos_dir() / APP_NAME
+
+
+def legacy_output_dir() -> Path:
+    """Pasta usada pelas primeiras versões, escondida dentro da pasta de dados."""
     return data_dir() / "saida"
 
 
